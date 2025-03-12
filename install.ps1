@@ -3,6 +3,13 @@ $target_folder = "D:\data"
 $target_subfolder = "standard-toolset"
 $target_folder_alternative = "C:\$target_subfolder"
 
+# Title
+Write-Host "+--------------------------------+" -ForegroundColor Cyan
+Write-Host "|" -ForegroundColor Cyan -NoNewline
+Write-Host "   ETML-INF STANDARD TOOLSET    " -ForegroundColor White -NoNewline
+Write-Host "|" -ForegroundColor Cyan
+Write-Host "+--------------------------------+" -ForegroundColor Cyan
+
 # Check if the target folder exists
 if (Test-Path -Path $target_folder) {
     # If the folder exists, set target to target_folder\target_subfolder
@@ -37,8 +44,9 @@ if (-not (Test-Path -Path $target)) {
     }
 }
 
-
 Write-Host "Ready to install etml standard toolset"
+
+
 Invoke-RestMethod get.scoop.sh -outfile $install_file
 & ".\$install_file" -ScoopDir "$target\Scoop"
 Remove-Item $install_file
@@ -93,3 +101,4 @@ if (-not $toolbarExists) {
 } else {
     Write-Warning "Toolbar for Scoop shortcuts already exists."
 }
+
