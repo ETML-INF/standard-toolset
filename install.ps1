@@ -1,6 +1,6 @@
-$install_file = 'install-etml-standard-toolset.ps1'
+$install_file = 'inf-toolset.ps1'
 $target_folder = "D:\data"
-$target_subfolder = "standard-toolset"
+$target_subfolder = "inf-toolset"
 $target_folder_alternative = "C:\$target_subfolder"
 
 # Title
@@ -36,8 +36,8 @@ Write-Host "Final target folder: $target"
 
 if (-not (Test-Path -Path $target)) {
     try {
-        New-Item -Path $target -ItemType Directory -ErrorAction Stop
-        Write-Host "Directory created successfully at: $directoryPath" -ForegroundColor Green
+        New-Item -Path $target -ItemType Directory -ErrorAction Stop -Verbose:$false
+        Write-Host "Directory created successfully at: $target" -ForegroundColor Green
     } catch {
         Write-Error "Error creating directory: $_" -ForegroundColor Red
         return
@@ -46,7 +46,7 @@ if (-not (Test-Path -Path $target)) {
 
 Write-Host "Ready to install etml standard toolset"
 
-
+# TODO if scoop already installed ... check that it is in toolset dir... otherwise uninstall ?
 Invoke-RestMethod get.scoop.sh -outfile $install_file
 & ".\$install_file" -ScoopDir "$target\Scoop"
 Remove-Item $install_file
@@ -56,8 +56,9 @@ scoop bucket add extras
 
 # Install apps
 # insomnia -> trop lourd ?
-# git ?? / foxit ??
-#scoop install dbeaver nvm vscode draw.io github cmder-full warp-terminal bruno pdfsam-visual
+# git : requis par scoop, bien si dans l’image
+# foxit (déjà dans l’image)
+scoop install dbeaver nodejs@22.14 vscode draw.io github cmder-full warp-terminal bruno pdfsam-visual
 
 # Add toolbar for shorcuts
 # Define the path to Scoop shortcuts folder
