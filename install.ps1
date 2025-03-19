@@ -71,33 +71,31 @@ if (-not (Test-Path -Path $scoopShortcutsFolder)) {
     exit
 }
 
-# Check if the toolbar already exists
-$existingToolbars = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Toolbars\*" -ErrorAction SilentlyContinue
-$toolbarExists = $false
+# Add toolbar for shorcuts
+# Define the path to Scoop shortcuts folder
+$scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
 
-foreach ($toolbar in $existingToolbars) {
-    if ($toolbar.PSPath -like "*$scoopShortcutsFolder*") {
-        $toolbarExists = $true
-        break
-    }
-}
+$shortcutPath = [Environment]::GetFolderPath("Desktop") + "\$target_subfolder.lnk"
 
-# Only create the toolbar if it doesn't exist
-if (-not $toolbarExists) {
-    # Create the registry key for the toolbar
-    $registryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Toolbars\$scoopShortcutsFolder"
-    if (-not (Test-Path -Path $registryPath)) {
-        New-Item -Path $registryPath -Force
-    }
-
-    # Add the Toolbar to the registry
-    New-ItemProperty -Path $registryPath -Name "Toolbar" -Value "Tools" -PropertyType String -Force
-
-    # Restart Explorer to apply changes
-    Write-Host "Toolbar added. Restarting Explorer to apply changes..." -ForegroundColor Green
-    Stop-Process -Name explorer -Force
-    Start-Process explorer
+# Check if the shortcut already exists
+if (Test-Path $shortcutPath) {
+    Write-Output "Shortcut already exists. Replacing it..."
+    Remove-Item $shortcutPath -Force # Remove the existing shortcut
 } else {
-    Write-Warning "Toolbar for Scoop shortcuts already exists."
+    Write-Output "Shortcut does not exist. Creating it..."
 }
+
+$iconFile = "C:\Windows\System32\shell32.dll" # The file containing standard Windows icons
+$iconIndex = 12
+
+# Create a WScript.Shell COM object
+$shell = New-Object -ComObject WScript.Shell
+
+# Create the shortcut
+$shortcut = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = "$scoopShortcutsFolder"
+$shortcut.IconLocation = "$iconFile,$iconIndex"
+$shortcut.Save()
+
+Write-Output "Shortcut created on the desktop: $shortcutPath"
 
