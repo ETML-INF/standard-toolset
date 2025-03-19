@@ -1,2 +1,3 @@
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-powershell install.ps1
+@ECHO off
+powershell Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+powershell -File install.ps1
