@@ -55,12 +55,9 @@ Remove-Item $install_file
 scoop bucket add extras
 
 # Install apps
-#scoop install dbeaver nvm vscode
-scoop install nvm
-
-# NVM
-nvm install latest
-nvm on
+# insomnia -> trop lourd ?
+# git ?? / foxit ??
+#scoop install dbeaver nvm vscode draw.io github cmder-full warp-terminal bruno pdfsam-visual
 
 # Add toolbar for shorcuts
 # Define the path to Scoop shortcuts folder
