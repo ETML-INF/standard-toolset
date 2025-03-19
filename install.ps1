@@ -36,7 +36,7 @@ Write-Host "Final target folder: $target"
 
 if (-not (Test-Path -Path $target)) {
     try {
-        New-Item -Path $target -ItemType Directory -ErrorAction Stop -Verbose:$false
+        New-Item -Path $target -ItemType Directory -ErrorAction Stop | Out-Null
         Write-Host "Directory created successfully at: $target" -ForegroundColor Green
     } catch {
         Write-Error "Error creating directory: $_" -ForegroundColor Red
@@ -52,13 +52,14 @@ Invoke-RestMethod get.scoop.sh -outfile $install_file
 Remove-Item $install_file
 
 # Setup scoop
+scoop config 7ZIPEXTRACT_USE_EXTERNAL true # Use system 7zip as issues with .ru...
 scoop bucket add extras
 
 # Install apps
 # insomnia -> trop lourd ?
 # git : requis par scoop, bien si dans l’image
 # foxit (déjà dans l’image)
-scoop install dbeaver nodejs@22.14 vscode draw.io github cmder-full warp-terminal bruno pdfsam-visual
+scoop install dbeaver nodejs-lts@22.14.0 vscode draw.io github cmder-full warp-terminal bruno pdfsam-visual
 
 # Add toolbar for shorcuts
 # Define the path to Scoop shortcuts folder
@@ -86,11 +87,11 @@ if (-not $toolbarExists) {
     # Create the registry key for the toolbar
     $registryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Toolbars\$scoopShortcutsFolder"
     if (-not (Test-Path -Path $registryPath)) {
-        New-Item -Path $registryPath -Force | Out-Null
+        New-Item -Path $registryPath -Force
     }
 
     # Add the Toolbar to the registry
-    New-ItemProperty -Path $registryPath -Name "Toolbar" -Value "Tools" -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $registryPath -Name "Toolbar" -Value "Tools" -PropertyType String -Force
 
     # Restart Explorer to apply changes
     Write-Host "Toolbar added. Restarting Explorer to apply changes..." -ForegroundColor Green
