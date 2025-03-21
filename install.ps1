@@ -61,13 +61,18 @@ if ($sevenZipPath) {
     $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 
     if ($currentPath -split ";" -notcontains $sevenZipPath) {
+        # Update user PATH environment variable (persistent across sessions)
         [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$sevenZipPath", "User")
         Write-Host "Added '$sevenZipPath' to user PATH."
+        # Update PATH for current process
+        $env:PATH = "$env:PATH;$sevenZipPath"
+        Write-Host "Added '$sevenZipPath' to current process PATH."
     } else {
         Write-Host "Path '$sevenZipPath' already in user PATH."
     }
+
 } else {
-    Write-Host "7z.exe not found in standard program folders. Will try to get it from the web"
+    Write-Host "7z.exe not found in standard program folders."
 }
 scoop config use_external_7zip true # Use system 7zip as issues with .ru...
 
