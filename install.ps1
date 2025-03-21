@@ -69,7 +69,7 @@ if ($sevenZipPath) {
 } else {
     Write-Host "7z.exe not found in standard program folders. Will try to get it from the web"
 }
-scoop config 7ZIPEXTRACT_USE_EXTERNAL true # Use system 7zip as issues with .ru...
+scoop config use_external_7zip true # Use system 7zip as issues with .ru...
 
 scoop bucket add extras
 
