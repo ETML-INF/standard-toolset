@@ -1,6 +1,12 @@
 # standard-toolset
 pour installer le toolset ETML portable
 
+## Install
+
+```shell
+powershell -Command Invoke-WebRequest -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.cmd -OutFile %TEMP%\inf-toolset-bootstrap.bat && %TEMP%\inf-toolset-bootstrap.bat
+```
+
 ## CDC
 - pas de droit admin
 - installation à un endroit choisi (d:\...)

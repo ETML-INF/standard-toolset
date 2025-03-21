@@ -1,3 +1,2 @@
 @ECHO off
-powershell Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-powershell -File install.ps1
+powershell.exe -Command "& {Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force; & '.\install.ps1'}"
