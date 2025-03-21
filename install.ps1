@@ -52,7 +52,25 @@ Invoke-RestMethod get.scoop.sh -outfile $install_file
 Remove-Item $install_file
 
 # Setup scoop
+
+## 7zip
+$sevenZipPath = Get-ChildItem -Path @("${env:ProgramFiles}", "${env:ProgramFiles(x86)}") -Filter "7z.exe" -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty DirectoryName
+
+if ($sevenZipPath) {
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+
+    if ($currentPath -split ";" -notcontains $sevenZipPath) {
+        [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$sevenZipPath", "User")
+        Write-Host "Added '$sevenZipPath' to user PATH."
+    } else {
+        Write-Host "Path '$sevenZipPath' already in user PATH."
+    }
+} else {
+    Write-Host "7z.exe not found in standard program folders. Will try to get it from the web"
+}
 scoop config 7ZIPEXTRACT_USE_EXTERNAL true # Use system 7zip as issues with .ru...
+
 scoop bucket add extras
 
 # Install apps
