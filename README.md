@@ -24,3 +24,8 @@ powershell -Command Invoke-WebRequest -Uri https://github.com/ETML-INF/standard-
 Nomad: in house mais demande la maintenance et utilise actuellement symlink
 Winget: integré à windows, package plus compliqué à faire... pas de choix de destination d’installation (copie facile des programmes)
 Scoop: grande communauté (bcp d’apps), facile d’ajouter une app (bucket ETML ?), choix de destination... utilisation de shim au lieu de symlink (ok sur exfat)
+
+## Cycle
+Pour harmoniser les versions :
+### Une release par année
+### Patchs durant l’année si urgence
