@@ -77,12 +77,35 @@ if ($sevenZipPath) {
 scoop config use_external_7zip true # Use system 7zip as issues with .ru...
 
 scoop bucket add extras
+scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket
 
 # Install apps
-# insomnia -> trop lourd ?
 # git : requis par scoop, bien si dans l’image
 # foxit (déjà dans l’image)
-scoop install dbeaver nodejs-lts@22.14.0 vscode draw.io github cmder-full warp-terminal bruno pdfsam-visual
+
+## WEB
+scoop install nodejs-lts@22.14.0 bruno insomnia
+
+## DB
+scoop install dbeaver mysql-workbench
+
+## CMD
+scoop install windows-terminal cmder-full warp-terminal
+
+## GIT
+scoop install github
+
+## OTHER
+scoop install draw.io pdfsam-visual
+
+## EDITOR
+scoop install vscode
+Write-Output "Registering vscode context/associations"
+$vscodeDir = "$target\Scoop\apps\vscode\current\"
+reg import "$vscodeDir\install-context.reg"
+reg import "$vscodeDir\install-associations.reg"
+#reg import "$vscodeDir\install-github-integration.reg"
+
 
 # Add toolbar for shorcuts
 # Define the path to Scoop shortcuts folder
