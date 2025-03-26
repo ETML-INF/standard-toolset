@@ -91,6 +91,8 @@ scoop install dbeaver mysql-workbench
 
 ## CMD
 scoop install windows-terminal cmder-full warp-terminal
+$windowsTerminalDir = "$target\Scoop\apps\windows-terminal\current\"
+reg import "$windowsTerminalDir\install-context.reg"
 
 ## GIT
 scoop install github
