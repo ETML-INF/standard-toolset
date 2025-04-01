@@ -84,13 +84,13 @@ scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket
 # foxit (déjà dans l’image)
 
 ## WEB
-scoop install nodejs-lts@22.14.0 bruno insomnia
+scoop install nodejs-lts@22.14.0 bruno
 
 ## DB
 scoop install dbeaver mysql-workbench
 
 ## CMD
-scoop install windows-terminal cmder-full warp-terminal
+scoop install windows-terminal cmder-full
 $windowsTerminalDir = "$target\Scoop\apps\windows-terminal\current\"
 reg import "$windowsTerminalDir\install-context.reg"
 
@@ -102,12 +102,6 @@ scoop install draw.io pdfsam-visual
 
 ## EDITOR
 scoop install vscode
-Write-Output "Registering vscode context/associations"
-$vscodeDir = "$target\Scoop\apps\vscode\current\"
-reg import "$vscodeDir\install-context.reg"
-reg import "$vscodeDir\install-associations.reg"
-#reg import "$vscodeDir\install-github-integration.reg"
-
 
 # Add toolbar for shorcuts
 # Define the path to Scoop shortcuts folder
