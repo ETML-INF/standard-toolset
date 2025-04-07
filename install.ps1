@@ -87,7 +87,7 @@ scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket
 scoop install nodejs-lts@22.14.0 bruno
 
 ## DB
-scoop install dbeaver mysql-workbench
+scoop install dbeaver mysql-workbench etml-inf/looping
 
 ## CMD
 scoop install windows-terminal cmder-full
