@@ -44,37 +44,52 @@ if (-not (Test-Path -Path $target)) {
     }
 }
 
+
 Write-Host "Ready to install etml standard toolset"
 
-# TODO if scoop already installed ... check that it is in toolset dir... otherwise uninstall ?
-Invoke-RestMethod get.scoop.sh -outfile $install_file
-& ".\$install_file" -ScoopDir "$target\Scoop"
-Remove-Item $install_file
+# TODO Add gpo to setup path if needed ?
+if (Get-Command scoop -ErrorAction SilentlyContinue) {
+    Write-Output "Scoop already installed, reusing that version (hoping that it is in good health ;-))."
+} else {
+    # Setup scoop
+    Write-Output "Installing scoop"
+    Invoke-RestMethod get.scoop.sh -outfile $install_file & ".\$install_file" -ScoopDir "$target\Scoop"
+    Remove-Item $install_file
 
-# Setup scoop
+    ## 7zip
+    $sevenZipPath = Get-ChildItem -Path @("${env:ProgramFiles}", "${env:ProgramFiles(x86)}") -Filter "7z.exe" -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -First 1 -ExpandProperty DirectoryName
 
-## 7zip
-$sevenZipPath = Get-ChildItem -Path @("${env:ProgramFiles}", "${env:ProgramFiles(x86)}") -Filter "7z.exe" -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty DirectoryName
+    if ($sevenZipPath) {
+	$currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 
-if ($sevenZipPath) {
-    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+	if ($currentPath -split ";" -notcontains $sevenZipPath) {
+            # Update user PATH environment variable (persistent across sessions)
+            [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$sevenZipPath", "User")
+            Write-Host "Added '$sevenZipPath' to user PATH."
+            # Update PATH for current process
+            $env:PATH = "$env:PATH;$sevenZipPath"
+            Write-Host "Added '$sevenZipPath' to current process PATH."
+	} else {
+            Write-Host "Path '$sevenZipPath' already in user PATH."
+	}
 
-    if ($currentPath -split ";" -notcontains $sevenZipPath) {
-        # Update user PATH environment variable (persistent across sessions)
-        [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$sevenZipPath", "User")
-        Write-Host "Added '$sevenZipPath' to user PATH."
-        # Update PATH for current process
-        $env:PATH = "$env:PATH;$sevenZipPath"
-        Write-Host "Added '$sevenZipPath' to current process PATH."
+	scoop config use_external_7zip true # Use system 7zip as issues with .ru...
+
     } else {
-        Write-Host "Path '$sevenZipPath' already in user PATH."
+	Write-Host "7z.exe not found in standard program folders, this could leed to some problems..."
     }
 
-} else {
-    Write-Host "7z.exe not found in standard program folders."
 }
-scoop config use_external_7zip true # Use system 7zip as issues with .ru...
+
+# TODO if scoop already installed ... check that it is in toolset dir... otherwise uninstall ?
+
+# Check git
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Output "Git not available, trying to install scoop version"
+    scoop install git
+}
+
 
 scoop bucket add extras
 scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket
