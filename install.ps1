@@ -1,20 +1,15 @@
-$install_file = 'inf-toolset.ps1'
+Set-StrictMode -Version Latest
+
 $target_folder = "D:\data"
 $target_subfolder = "inf-toolset"
 $target_folder_alternative = "C:\$target_subfolder"
 
-# Title
-Write-Host "+--------------------------------+" -ForegroundColor Cyan
-Write-Host "|" -ForegroundColor Cyan -NoNewline
-Write-Host "   ETML-INF STANDARD TOOLSET    " -ForegroundColor White -NoNewline
-Write-Host "|" -ForegroundColor Cyan
-Write-Host "+--------------------------------+" -ForegroundColor Cyan
 
 # Check if the target folder exists
 if (Test-Path -Path $target_folder) {
     # If the folder exists, set target to target_folder\target_subfolder
     $target = Join-Path -Path $target_folder -ChildPath $target_subfolder
-    Write-Host "$target_folder folder exists. Target set to: $target"
+    Write-Output "$target_folder folder exists. Target set to: $target"
 } else {
     # If the folder doesn't exist, prompt the user
     Write-Warning "$target_folder folder not found."
@@ -23,136 +18,34 @@ if (Test-Path -Path $target_folder) {
     # If user just pressed Enter, use the default path
     if ([string]::IsNullOrEmpty($userInput)) {
         $target = $target_folder_alternative
-        Write-Host "Using default path: $target"
+        Write-Output "Using default path: $target"
     } else {
         # Otherwise use whatever the user entered
         $target = $userInput
-        Write-Host "Using custom path: $target"
+        Write-Output "Using custom path: $target"
     }
 }
 
-# Print the final target variable
-Write-Host "Final target folder: $target"
-
+# Create target if needed
+Write-Output "Checking existence of final target folder: $target"
 if (-not (Test-Path -Path $target)) {
     try {
         New-Item -Path $target -ItemType Directory -ErrorAction Stop | Out-Null
-        Write-Host "Directory created successfully at: $target" -ForegroundColor Green
+        Write-Output "Directory created successfully at: $target" -ForegroundColor Green
     } catch {
         Write-Error "Error creating directory: $_" -ForegroundColor Red
         return
     }
 }
 
-
-Write-Host "Ready to install etml standard toolset"
-
-# TODO Add gpo to setup path if needed ?
-if (Get-Command scoop -ErrorAction SilentlyContinue) {
-    Write-Output "Scoop already installed, reusing that version (hoping that it is in good health ;-))."
-} else {
-    # Setup scoop
-    Write-Output "Installing scoop"
-    Invoke-RestMethod get.scoop.sh -outfile $install_file & ".\$install_file" -ScoopDir "$target\Scoop"
-    Remove-Item $install_file
-
-    ## 7zip
-    $sevenZipPath = Get-ChildItem -Path @("${env:ProgramFiles}", "${env:ProgramFiles(x86)}") -Filter "7z.exe" -Recurse -ErrorAction SilentlyContinue |
-      Select-Object -First 1 -ExpandProperty DirectoryName
-
-    if ($sevenZipPath) {
-	$currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-
-	if ($currentPath -split ";" -notcontains $sevenZipPath) {
-            # Update user PATH environment variable (persistent across sessions)
-            [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$sevenZipPath", "User")
-            Write-Host "Added '$sevenZipPath' to user PATH."
-            # Update PATH for current process
-            $env:PATH = "$env:PATH;$sevenZipPath"
-            Write-Host "Added '$sevenZipPath' to current process PATH."
-	} else {
-            Write-Host "Path '$sevenZipPath' already in user PATH."
-	}
-
-	scoop config use_external_7zip true # Use system 7zip as issues with .ru...
-
-    } else {
-	Write-Host "7z.exe not found in standard program folders, this could leed to some problems..."
-    }
-
+# bootstrap.ps1 sets location to extracted archive directory
+# Rclone with archive content
+$scoopdirectory="$target\scoop"
+if (-not (Test-Path $scoopdirectory))
+{
+    New-Item -ItemType Directory -Path $scoopdirectory
 }
+scoop\apps\rclone\current\rclone sync --progress .\scoop $scoopdirectory
 
-# TODO if scoop already installed ... check that it is in toolset dir... otherwise uninstall ?
-
-# Check git
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Output "Git not available, trying to install scoop version"
-    scoop install git
-}
-
-
-scoop bucket add extras
-scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket
-
-# Install apps
-# git : requis par scoop, bien si dans l’image
-# foxit (déjà dans l’image)
-
-## WEB
-scoop install nodejs-lts@22.14.0 bruno
-
-## DB
-scoop install dbeaver mysql-workbench etml-inf/looping
-
-## CMD
-scoop install windows-terminal cmder-full
-$windowsTerminalDir = "$target\Scoop\apps\windows-terminal\current\"
-reg import "$windowsTerminalDir\install-context.reg"
-
-## GIT
-scoop install github
-
-## OTHER
-scoop install draw.io pdfsam-visual
-
-## EDITOR
-scoop install vscode
-
-# Add toolbar for shorcuts
-# Define the path to Scoop shortcuts folder
-$scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
-
-# Check if the folder exists
-if (-not (Test-Path -Path $scoopShortcutsFolder)) {
-    Write-Error "Scoop shortcuts folder not found at: $scoopShortcutsFolder"
-    exit
-}
-
-# Add toolbar for shorcuts
-# Define the path to Scoop shortcuts folder
-$scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
-
-$shortcutPath = [Environment]::GetFolderPath("Desktop") + "\$target_subfolder.lnk"
-
-# Check if the shortcut already exists
-if (Test-Path $shortcutPath) {
-    Write-Output "Shortcut already exists. Replacing it..."
-    Remove-Item $shortcutPath -Force # Remove the existing shortcut
-} else {
-    Write-Output "Shortcut does not exist. Creating it..."
-}
-
-$iconFile = "C:\Windows\System32\shell32.dll" # The file containing standard Windows icons
-$iconIndex = 12
-
-# Create a WScript.Shell COM object
-$shell = New-Object -ComObject WScript.Shell
-
-# Create the shortcut
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = "$scoopShortcutsFolder"
-$shortcut.IconLocation = "$iconFile,$iconIndex"
-$shortcut.Save()
-
-Write-Output "Shortcut created on the desktop: $shortcutPath"
-
+Write-Output "Toolset install/update terminated"
+Write-Output "If needed, please run 'powershell $target\setup-user-env.ps1"

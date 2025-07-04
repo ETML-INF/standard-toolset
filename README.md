@@ -3,8 +3,9 @@ pour installer le toolset ETML portable
 
 ## Install
 
-```shell
-powershell -Command Invoke-WebRequest -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.cmd -OutFile %TEMP%\inf-toolset-bootstrap.bat && %TEMP%\inf-toolset-bootstrap.bat
+```pwsh
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.ps1 | Invoke-Expression
 ```
 
 ## CDC
@@ -15,7 +16,7 @@ powershell -Command Invoke-WebRequest -Uri https://github.com/ETML-INF/standard-
 - facile à "déplacer"/"copier"
 - ...
 
-## Candidats principaux
+## Candidats principaux pour le moteur de base
 - [nomad](https://github.com/jonathanMelly/nomad)
 - [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/)
 - [scoop](https://scoop.sh)
@@ -27,5 +28,5 @@ Scoop: grande communauté (bcp d’apps), facile d’ajouter une app (bucket ETM
 
 ## Cycle
 Pour harmoniser les versions :
-### Une release par année
-### Patchs durant l’année si urgence
+- [x] Une release par année
+- [x] Patchs durant l’année si urgence

@@ -1,0 +1,59 @@
+[
+  {
+    "//comment":"To be sure it is available for further installs on client",
+    "name":"7zip",
+    "tags":"system"
+  },
+  {
+    "name":"looping",
+    "bucket":"etml-inf",
+    "tags":"db"
+  },
+  ,
+  {
+    "//comment":"powerfull, feature-full, keeps db schema custom positions...",
+    "name":"dbeaver",
+    "tags":"db,project"
+  },
+  {
+    "//comment":"deprecated, use dbeaver if possible",
+    "name":"mysql-workbench",
+    "tags":"db"
+  },
+  {
+    "name":"windows-terminal",
+    "tags":"devops,cmd"
+  },
+  {
+    "name":"cmder-full",
+    "tags":"devops,cmd"
+  },
+  {
+    "name":"bruno",
+    "tags":"web,project"
+  },
+  {
+    "name":"nodejs-lts",
+    "//comment":"Version:22.14.0 removed... just use lts",
+    "tags":"web,project"
+  },
+  {
+    "//comment":"this is github desktop, not git",
+    "name":"github",
+    "tags":"project,devops"
+  },
+  {
+    "name":"draw.io",
+    "tags":"doc"
+  },
+  {
+    "name":"pdfarranger",
+    "tags":"doc"
+  },
+  {
+    "//comment":"vscodium could be more ethical but it has less plugins...",
+    "name":"vscode",
+    "tags":"dev"
+  }
+]
+

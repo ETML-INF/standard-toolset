@@ -1,0 +1,13 @@
+[
+  {
+    "//comment":"To be sure it is available for further installs on client",
+    "name":"7zip",
+    "tags":"system"
+  },
+  {
+    "name":"looping",
+    "bucket":"etml-inf",
+    "tags":"db"
+  },
+]
+
