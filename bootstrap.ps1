@@ -9,7 +9,7 @@ Write-Output "+--------------------------------+" -ForegroundColor Cyan
 
 # Download archive
 Write-Output "About to download toolset..."
-$url="https://github.com/ETML-INF/standard-toolset/release/latest/toolset.zip"
+$url="https://github.com/ETML-INF/standard-toolset/release/latest/download/toolset.zip"
 $timestamp = Get-Date -format yyyy_MM_dd_H_mm_ss
 $archivename = "toolset-$timestamp"
 $archivepath = "$env:TEMP\$archivename.zip"

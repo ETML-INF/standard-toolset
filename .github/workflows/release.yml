@@ -23,18 +23,18 @@ jobs:
           release-type: simple
 
       - uses: actions/checkout@v4
-      - name: Build apps
+      - name: Validates apps.json
         shell: pwsh
-        run: |
-             & .\build.ps1 apps.test.json
-             cp VERSION.txt  build
-             cp install.ps1 build
-             cp setup-user-env.ps1 build
+        run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
              
       - name: Zip
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
+             & .\build.ps1 apps.test.json
+             echo ${{steps.release.outputs.tag_name}} > build\VERSION.txt
+             cp install.ps1 build
+             cp setup-user-env.ps1 build
              Compress-Archive build/* toolset.zip
 
       - name: Upload Release Asset

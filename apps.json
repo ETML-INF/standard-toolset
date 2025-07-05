@@ -9,7 +9,6 @@
     "bucket":"etml-inf",
     "tags":"db"
   },
-  ,
   {
     "//comment":"powerfull, feature-full, keeps db schema custom positions...",
     "name":"dbeaver",
