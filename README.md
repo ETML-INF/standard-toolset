@@ -4,7 +4,7 @@ pour installer le toolset ETML portable
 ## Install
 
 ```pwsh
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.ps1 | Invoke-Expression
 ```
 
