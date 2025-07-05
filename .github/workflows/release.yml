@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write # needed if using builtin secrets.GITHUB_TOKEN
 
 
 jobs:
