@@ -23,6 +23,6 @@ Expand-Archive $archivepath $archivedirectory
 # Install
 Write-Output "About to launch install script"
 Set-Location $archivedirectory
-& install.ps1
+& .\install.ps1
 
 

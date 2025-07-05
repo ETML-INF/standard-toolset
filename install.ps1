@@ -45,7 +45,7 @@ if (-not (Test-Path $scoopdirectory))
 {
     New-Item -ItemType Directory -Path $scoopdirectory
 }
-scoop\apps\rclone\current\rclone sync --progress .\scoop $scoopdirectory
+& (Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName --progress .\scoop $scoopdirectory
 
-Write-Output "Toolset install/update terminated"
-Write-Output "If needed, please run 'powershell $target\setup-user-env.ps1"
+Write-Output "Toolset install/update terminated on host"
+Write-Output "As path should be adapted in a user context, if needed, please run 'powershell $target\setup-user-env.ps1 from a user session..."

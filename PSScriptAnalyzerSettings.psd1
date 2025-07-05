@@ -9,7 +9,6 @@
         'PSUseApprovedVerbs',
         'PSReservedCmdletChar',
         'PSReservedParams',
-        'PSAvoidUsingWriteHost',
         'PSMisleadingBacktick'
     )
     

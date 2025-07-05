@@ -29,6 +29,7 @@ jobs:
         run: |
              & build.ps1 apps.test.json
              cp VERSION.txt  build
+             cp install.ps1 build
              cp setup-user-env.ps1 build
              
       - name: Zip
