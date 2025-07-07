@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/ETML-INF/standard-toolset/compare/v1.1.0...v1.2.0) (2025-07-07)
+
+
+### Features
+
+* **cicd:** reword zip to build and zip ([afb228e](https://github.com/ETML-INF/standard-toolset/commit/afb228e96add216a4009ac10d0182cd7effae2af))
+
+
+### Bug Fixes
+
+* **cicd:** version taken from tag (not on not yet available VERSION.txt) ([dcfd965](https://github.com/ETML-INF/standard-toolset/commit/dcfd965b36be2bf56c2506891b11493e87ac5c2c))
+
 ## [1.1.0](https://github.com/ETML-INF/standard-toolset/compare/v1.0.0...v1.1.0) (2025-07-07)
 
 
