@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/ETML-INF/standard-toolset/compare/v1.0.0...v1.1.0) (2025-07-07)
+
+
+### Features
+
+* **bootstrap:** cleanup and basic error handling ([1bb89f1](https://github.com/ETML-INF/standard-toolset/commit/1bb89f1c9ff1997b6cbdcf60191264dca9e3171f))
+* **cicd:** use final apps.json ([b9ec7d3](https://github.com/ETML-INF/standard-toolset/commit/b9ec7d3cd02637a15498a8469d683cdd6f018a3c))
+* **install:** nointeraction mode and error handling ([2737557](https://github.com/ETML-INF/standard-toolset/commit/2737557f371a7bf52f32bb1178cad28ef0d80bd5))
+* **setup user env:** ability to get path from arg ([5ade402](https://github.com/ETML-INF/standard-toolset/commit/5ade40222e187e1a47e4f4df5940a6fa98c5c540))
+
+
+### Bug Fixes
+
+* **bootstraping:** pwsh policy force (no interaction) and releaseS ([b3ce4ee](https://github.com/ETML-INF/standard-toolset/commit/b3ce4eed854800a0970284846e7c74ec379da2cf))
+
 ## 1.0.0 (2025-07-05)
 
 
