@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
              & .\build.ps1 apps.json
-             cp VERSION.txt build
+             echo ${{steps.release.outputs.tag_name}} > build\VERSION.txt
              cp install.ps1 build
              cp setup-user-env.ps1 build
              Compress-Archive build/* toolset.zip
@@ -43,3 +43,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
+
+
