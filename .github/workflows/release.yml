@@ -27,7 +27,7 @@ jobs:
         shell: pwsh
         run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
              
-      - name: Zip
+      - name: Build and zip
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
