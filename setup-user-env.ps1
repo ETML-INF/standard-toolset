@@ -1,12 +1,15 @@
+param(
+    [Parameter(Mandatory=$false,HelpMessage="path to look for toolset")][string]$path="d:\data\inf-toolset"
+)
 Set-StrictMode -Version Latest
 # Validate current install
-$toolsetdir = "D:\data\inf-toolset\"
+$toolsetdir = $path
 if (-not (Test-Path -Path $toolsetdir))
 {
-	$toolsetdir = "C:\data\inf-toolset"
+	$toolsetdir = "C:\inf-toolset"
 	if (-not (Test-Path -Path $toolsetdir))
 	{
-		Write-Output "Toolset not found in standard locations"
+		Write-Output "Toolset not found in given/standard locations"
 		$userInput = Read-Host "Enter custom toolset path (empty/ctrl-c to abort)"
 		if ([string]::IsNullOrEmpty($userInput))
 		{
@@ -25,10 +28,12 @@ if (-not (Test-Path -Path $toolsetdir))
 	}
 }
 
-# Setup scoop (mainly path)
-& $toolsetdir\scoop\shims\scoop reset *
+# For initial install : mainly restore "current" junctions (removed by Compress-Archive during build)
+# For further user setup: mainly set path for current user
+Write-Host "Resetting scoop to mainly handle path settings for user"
+& $toolsetdir\scoop\apps\scoop\current\bin\scoop.ps1 reset *
 
-# Add context menu for vscode
+# Add context menu for vscode (now scoop should be in path...)
 $vscode = scoop prefix vscode
 & reg import "$vscode\install-context.reg"
 Write-Output "VSCode context menu added/updated"
