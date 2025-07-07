@@ -31,8 +31,8 @@ jobs:
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
-             & .\build.ps1 apps.test.json
-             echo ${{steps.release.outputs.tag_name}} > build\VERSION.txt
+             & .\build.ps1 apps.json
+             cp VERSION.txt build
              cp install.ps1 build
              cp setup-user-env.ps1 build
              Compress-Archive build/* toolset.zip
