@@ -29,30 +29,35 @@ jobs:
         run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
 
       - name: Restore Scoop cache
+        if: steps.release.outputs.release_created
         uses: actions/cache/restore@v4
         with:
                 path: build\scoop\cache
                 key: scoop-cache-dummy # never used, only use restore-keys
                 restore-keys: |
                               scoop-cache-
-      
+
+      # WARNING: scoop is added to the path only in that step
       - name: Build apps (local install)
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
              & .\build.ps1 apps.json
 
+      # WARNING: use full path to scoop as PATH var has died in last step 
       # Generate hash from installed packages
       - name: Generate cache hash
+        if: steps.release.outputs.release_created
         id: cache-hash
         shell: pwsh
         run: |
-             scoop list > hash.txt 2>$null
+             build\scoop\shims\scoop list > hash.txt 2>$null
              $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
              echo "hash=$hash" >> $env:GITHUB_OUTPUT
              
       # Save cache with new hash
       - name: Save Scoop cache
+        if: steps.release.outputs.release_created
         uses: actions/cache/save@v4
         with:
                 path: build\scoop\cache
