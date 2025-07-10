@@ -23,15 +23,40 @@ jobs:
           release-type: simple
 
       - uses: actions/checkout@v4
+
       - name: Validates apps.json
         shell: pwsh
         run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
-             
-      - name: Build apps
+
+      - name: Restore Scoop cache
+        uses: actions/cache/restore@v4
+        with:
+                path: build\scoop\cache
+                key: scoop-cache-dummy # never used, only use restore-keys
+                restore-keys: |
+                              scoop-cache-
+      
+      - name: Build apps (local install)
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
              & .\build.ps1 apps.json
+
+      # Generate hash from installed packages
+      - name: Generate cache hash
+        id: cache-hash
+        shell: pwsh
+        run: |
+             scoop list > hash.txt 2>$null
+             $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
+             echo "hash=$hash" >> $env:GITHUB_OUTPUT
+             
+      # Save cache with new hash
+      - name: Save Scoop cache
+        uses: actions/cache/save@v4
+        with:
+                path: build\scoop\cache
+                key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
 
       - name: Add script and versions
         if: steps.release.outputs.release_created
@@ -41,10 +66,12 @@ jobs:
              cp setup-user-env.ps1 build
              echo "Now creating archive"
 
-      - name: Create archive
+      - name: Create archive (purging cache before to reduce archive size)
         if: steps.release.outputs.release_created
         shell: pwsh
-        run: Compress-Archive build/* toolset.zip
+        run: |
+             scoop cache rm *
+             Compress-Archive build/* toolset.zip
 
       - name: Upload archive
         if: ${{steps.release.outputs.release_created}}

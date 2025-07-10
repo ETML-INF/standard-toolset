@@ -1,3 +1,6 @@
+param(
+    [Parameter(Mandatory=$false,HelpMessage="Try to find a local tollset.zip to install from")][string]$local=$true
+)
 try {
     Set-StrictMode -Version Latest
 
@@ -9,8 +12,10 @@ try {
     Write-Host "+--------------------------------+" -ForegroundColor Cyan
 
     # Download archive
+
     Write-Output "About to download toolset..."
     $url="https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.zip"
+    
     $timestamp = Get-Date -format yyyy_MM_dd_H_mm_ss
     $archivename = "toolset-$timestamp"
     $archivepath = "$env:TEMP\$archivename.zip"
@@ -32,5 +37,5 @@ try {
 }
 catch {
     Write-Error "Something went wrong: $_. Please contact the maintainer for more info..."
-    Write-Info "Items still available: $archivepath, $archivedirectory"
+    Write-Host "Items still available: $archivepath, $archivedirectory"
 }
