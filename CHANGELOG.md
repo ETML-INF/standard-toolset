@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/ETML-INF/standard-toolset/compare/v1.2.0...v1.3.0) (2025-07-10)
+
+
+### Features
+
+* **archive:** remove downloaded apps from archive ([8e0d46c](https://github.com/ETML-INF/standard-toolset/commit/8e0d46cb4e1e41c475e3868da6a94aa4fc3d5415))
+* **cicd:** split pwsh tasks to steps ([3b7b185](https://github.com/ETML-INF/standard-toolset/commit/3b7b185d50e7cba09b0d6ac8e6d1497630b466e9))
+* **cicd:** use gh cache ([8e0d46c](https://github.com/ETML-INF/standard-toolset/commit/8e0d46cb4e1e41c475e3868da6a94aa4fc3d5415))
+
+
+### Bug Fixes
+
+* **install:** write-host instead of inexistant info ([8e0d46c](https://github.com/ETML-INF/standard-toolset/commit/8e0d46cb4e1e41c475e3868da6a94aa4fc3d5415))
+
 ## [1.2.0](https://github.com/ETML-INF/standard-toolset/compare/v1.1.0...v1.2.0) (2025-07-07)
 
 
