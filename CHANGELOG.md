@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/ETML-INF/standard-toolset/compare/v1.4.0...v1.4.1) (2025-07-11)
+
+
+### Bug Fixes
+
+* **cicd:** purge cache with full path to scoop ([0576254](https://github.com/ETML-INF/standard-toolset/commit/0576254198f9ed9820bcc0cb680df8e827954b75))
+
 ## [1.4.0](https://github.com/ETML-INF/standard-toolset/compare/v1.3.0...v1.4.0) (2025-07-11)
 
 
