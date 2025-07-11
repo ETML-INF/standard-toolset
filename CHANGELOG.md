@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.0](https://github.com/ETML-INF/standard-toolset/compare/v1.3.0...v1.4.0) (2025-07-11)
+
+
+### Features
+
+* **bootstrap:** allow local archive reuse from bootstrap ([5ffb1f7](https://github.com/ETML-INF/standard-toolset/commit/5ffb1f7e4083d4c4a86c62cdb8b04ed69d9c8767))
+* **setup user env:** added error handling (basic) ([40576d6](https://github.com/ETML-INF/standard-toolset/commit/40576d69f71bd2ba659d590a30c72ac16247d9a3))
+
+
+### Bug Fixes
+
+* **cicd:** use scoop fullpath for further steps (PATH not global) ([d32b029](https://github.com/ETML-INF/standard-toolset/commit/d32b0290f4f06b5933b3d659f804117edda29cfd))
+
 ## [1.3.0](https://github.com/ETML-INF/standard-toolset/compare/v1.2.0...v1.3.0) (2025-07-10)
 
 
