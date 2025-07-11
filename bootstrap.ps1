@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from")][string]$local=$true
+    [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from")][bool]$local=$false
 )
 try {
     Set-StrictMode -Version Latest
@@ -14,7 +14,8 @@ try {
     # Download archive
     if($local)
     {
-	$localarchivepath = (Get-ChildItem -Path ".\toolset*.zip" | Select-Object -First 1).FullName
+	$existingfile = Get-ChildItem -Path ".\toolset*.zip" | Select-Object -First 1
+	$localarchivepath = if ($existingfile) { $existingfile.FullName } else { $null }
 	if(![string]::IsNullOrEmpty($localarchivepath))
 	{
 	    $archivepath = $localarchivepath
