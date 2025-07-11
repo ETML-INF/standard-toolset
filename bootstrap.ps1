@@ -33,9 +33,17 @@ try {
 	$archivename = "toolset-$timestamp"
 	$archivepath = "$env:TEMP\$archivename.zip"
 	Invoke-WebRequest -Uri "$url" -OutFile "$archivepath"
-	
+
+	# Wait for stable file size with 30s timeout (antivirus scan after invoke web-request...)
+	$lastSize = 0; $elapsed = 0
+	do {
+	    Start-Sleep -Seconds 1; $elapsed++
+	    try { $currentSize = (Get-Item $archivepath).Length } catch { $currentSize = -1 }
+	    if ($currentSize -gt 0 -and $currentSize -eq $lastSize) { break }
+	    if ($elapsed -ge 30) { exit 3 }
+	    $lastSize = $currentSize
+	} while ($true)
     }
-    
     
     # Extract
     $archivedirectory = "$env:TEMP\toolset-$(New-Guid)"
