@@ -71,11 +71,12 @@ jobs:
              cp setup-user-env.ps1 build
              echo "Now creating archive"
 
+      # WARNING: use full path to scoop as PATH var has died in previous step 
       - name: Create archive (purging cache before to reduce archive size)
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
-             scoop cache rm *
+             build\scoop\shims\scoop cache rm *
              Compress-Archive build/* toolset.zip
 
       - name: Upload archive
