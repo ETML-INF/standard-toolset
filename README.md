@@ -15,6 +15,19 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.ps1 | Invoke-Expression
 ```
 
+#### Local and offline install
+If you already downloaded an archive, you can either
+
+- Reuse it adding -local $true as first parameter of bootstrap.ps1 [online bootstrap]
+
+### Powershell / Pwsh
+```pwsh
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+& ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.ps1))) -local $true
+```
+
+- Or extract it and run ‘install.ps1’ [complete offline]
+
 ## CDC
 - pas de droit admin
 - installation à un endroit choisi (d:\...)
