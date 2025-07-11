@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][string]$nointeraction=$false
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$nointeraction=$false
 )
 Set-StrictMode -Version Latest
 
