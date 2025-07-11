@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.2](https://github.com/ETML-INF/standard-toolset/compare/v1.4.1...v1.4.2) (2025-07-11)
+
+
+### Bug Fixes
+
+* **bootstrap:** missing local archive compatible with pwsh5 ([9e73384](https://github.com/ETML-INF/standard-toolset/commit/9e7338417cf79c12929909549de2fb716da7a220))
+* **install:** nointeraction is bool ! ([b4ec50e](https://github.com/ETML-INF/standard-toolset/commit/b4ec50e2cca8caa2b1e70f4969dd0ed952377632))
+
 ## [1.4.1](https://github.com/ETML-INF/standard-toolset/compare/v1.4.0...v1.4.1) (2025-07-11)
 
 
