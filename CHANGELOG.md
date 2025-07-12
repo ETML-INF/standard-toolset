@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/ETML-INF/standard-toolset/compare/v1.5.0...v1.5.1) (2025-07-12)
+
+
+### Bug Fixes
+
+* **cicd:** use new name of configure env script ([3fb2a9f](https://github.com/ETML-INF/standard-toolset/commit/3fb2a9fe852942aa4c42377a953e63d062952d57))
+
 ## [1.5.0](https://github.com/ETML-INF/standard-toolset/compare/v1.4.2...v1.5.0) (2025-07-12)
 
 
