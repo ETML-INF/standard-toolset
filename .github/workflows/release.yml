@@ -68,7 +68,7 @@ jobs:
         shell: pwsh
         run: |
              cp install.ps1 build
-             cp setup-user-env.ps1 build
+             cp configure-user-environment.ps1 build
              echo "Now creating archive"
 
       # WARNING: use full path to scoop as PATH var has died in previous step 
@@ -85,5 +85,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
-
 
