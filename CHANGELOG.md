@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/ETML-INF/standard-toolset/compare/v1.4.2...v1.5.0) (2025-07-12)
+
+
+### Features
+
+* **setup:** allow custom source/destination usefull for deployment ([e9c98d5](https://github.com/ETML-INF/standard-toolset/commit/e9c98d59bbd92aa632548d4ba37d65b9cd6b05a3))
+
+
+### Bug Fixes
+
+* **bootstrap:** wait for antivirus after archive download ([213f5c9](https://github.com/ETML-INF/standard-toolset/commit/213f5c901b0929012c6c951d292d53fd27c96820))
+* **cicd:** cache key not based on always updated timestamps ([e1e0b71](https://github.com/ETML-INF/standard-toolset/commit/e1e0b71931c74221b1c1d0864be10129f1fddf62))
+
 ## [1.4.2](https://github.com/ETML-INF/standard-toolset/compare/v1.4.1...v1.4.2) (2025-07-11)
 
 
