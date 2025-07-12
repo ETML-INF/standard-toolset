@@ -1,10 +1,10 @@
 param(
-    [Parameter(Mandatory=$false,HelpMessage="path to look for toolset")][string]$path="d:\data\inf-toolset"
+    [Parameter(Mandatory=$false,HelpMessage="Path where to expect toolset to be")][string]$Path="d:\data\inf-toolset"
 )
 try {
     Set-StrictMode -Version Latest
     # Validate current install
-    $toolsetdir = $path
+    $toolsetdir = $Path
     if (-not (Test-Path -Path $toolsetdir))
     {
 	$toolsetdir = "C:\inf-toolset"

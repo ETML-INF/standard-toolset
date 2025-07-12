@@ -1,9 +1,10 @@
 param(
-    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$nointeraction=$false
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false,
+    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null
 )
 Set-StrictMode -Version Latest
 
-$target_folder = "D:\data"
+$target_folder = $Destination -or "D:\data"
 $target_subfolder = "inf-toolset"
 $target_folder_alternative = "C:\$target_subfolder"
 
@@ -17,7 +18,7 @@ try{
     } else {
 	# If the folder doesn't exist, prompt the user
 	Write-Warning "$target_folder folder not found."
-	if ($nointeraction)
+	if ($Nointeraction)
 	{
 	    $userInput=""
 	}
@@ -59,10 +60,10 @@ try{
     & (Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName --progress .\scoop $scoopdirectory
 
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
-    & .\setup-user-env.ps1 $target
+    & .\configure-user-environment.ps1 $target
 
     Write-Host "Toolset install/update terminated on host" -ForegroundColor Green
-    Write-Warning "For other users, please run 'powershell $target\setup-user-env.ps1' to add desktop shortcut and setup PATH"
+    Write-Warning "For other users, please run 'powershell $target\configure-user-environment.ps1' to add desktop shortcut and setup PATH"
 
 }
 catch {

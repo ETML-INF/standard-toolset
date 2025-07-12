@@ -1,5 +1,7 @@
 param(
-    [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from")][bool]$local=$false
+    [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from in current directory (not recursive)")][bool]$Local=$false,
+    [Parameter(Mandatory=$false,HelpMessage="Give a file path to get archive from (instead of github). Implies -local" )][string]$Source=$null,
+    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null
 )
 try {
     Set-StrictMode -Version Latest
@@ -11,11 +13,20 @@ try {
     Write-Host "|" -ForegroundColor Cyan
     Write-Host "+--------------------------------+" -ForegroundColor Cyan
 
-    # Download archive
-    if($local)
+    # Handles local args
+    if($Local -or $Source)
     {
-	$existingfile = Get-ChildItem -Path ".\toolset*.zip" | Select-Object -First 1
-	$localarchivepath = if ($existingfile) { $existingfile.FullName } else { $null }
+	if([string]::IsNullOrEmpty($Source))
+	{
+	    Write-Output "Looking for a toolset*.zip file in current directory..."
+	    $existingfile = Get-ChildItem -Path ".\toolset*.zip" | Select-Object -First 1
+	    $localarchivepath = if ($existingfile) { $existingfile.FullName } else { $null }
+	}
+	else{
+	    Write-Output "Using given $Source as source"
+	    $localarchivepath=$Source
+	}
+	
 	if(![string]::IsNullOrEmpty($localarchivepath))
 	{
 	    $archivepath = $localarchivepath
@@ -26,6 +37,7 @@ try {
 	    Exit 2
 	}
     }
+    # Download archive
     else{
 	Write-Output "About to download toolset..."
 	$url="https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.zip"
@@ -53,7 +65,7 @@ try {
     # Install
     Write-Output "About to launch install script"
     Set-Location $archivedirectory
-    & .\install.ps1
+    & .\install.ps1 -Destination "$Destination"
 
     # Cleaning up
     Remove-Item $archivedirectory
