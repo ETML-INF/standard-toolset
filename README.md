@@ -6,28 +6,27 @@ pour installer le toolset ETML portable
 ### Cmd.exe
 
 ``` shell
-powershell -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.ps1 | Invoke-Expression"
+powershell -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1 | Invoke-Expression"
 ```
 
 ### Powershell / Pwsh
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/bootstrap.ps1 | Invoke-Expression
+Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1 | Invoke-Expression
 ```
 
 #### Local and offline install
 If you already downloaded an archive, you can either
 
-- Reuse it adding -local $true as first parameter of bootstrap.ps1 [online bootstrap]
+- Reuse it adding -local $true as first parameter of setup.ps1 [online setup]
 
-### Powershell / Pwsh
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 & ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1))) -Local $true
 ```
 
 **You may also give a path to an archive or/and a path where to install  (usefull for offline deployment or to accelerate deployment from local resources...)**
-### Powershell / Pwsh
+
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 & ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1))) -Source "C:\downloads\toolset.zip" -Destination "\\host\d$\data"
