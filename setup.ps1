@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from in current directory (not recursive)")][bool]$Local=$false,
     [Parameter(Mandatory=$false,HelpMessage="Give a file path to get archive from (instead of github). Implies -local" )][string]$Source=$null,
-    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null
+    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false
 )
 #Use functions to avoid having utils functions at beginning...
 function Main{
@@ -60,7 +61,7 @@ function Main{
 	# Install
 	Write-Output "About to launch install script"
 	Set-Location $archivedirectory
-	& .\install.ps1 -Destination "$Destination"
+	& .\install.ps1 -Destination "$Destination" -Nointeraction "$Nointeraction"
 
 	# Cleaning up
 	Remove-Item $archivedirectory
@@ -102,7 +103,10 @@ function DownloadWithBits {
                 $percent = [math]::Round(($progress.BytesTransferred / $progress.BytesTotal) * 100, 1)
                 $mbTransferred = [math]::Round($progress.BytesTransferred / 1MB, 1)
                 $mbTotal = [math]::Round($progress.BytesTotal / 1MB, 1)
-                Write-Host "`rProgress: $percent% ($mbTransferred MB / $mbTotal MB)" -NoNewline
+		
+		$progressText = "Progress: $percent% ($mbTransferred MB / $mbTotal MB)"
+		#`r move cursor at the beginning of the line
+                Write-Host ("`r" + " " * 120 + "`r" + $progressText) -NoNewline
             }
             
             if ((Get-Date) -gt $timeout) {
