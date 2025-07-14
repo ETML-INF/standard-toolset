@@ -4,7 +4,7 @@ param(
 )
 Set-StrictMode -Version Latest
 
-$target_folder = $Destination -or "D:\data"
+$target_folder = if([string]::IsNullOrEmpty($Destination)){"D:\data"}else{$Destination} 
 $target_subfolder = "inf-toolset"
 $target_folder_alternative = "C:\$target_subfolder"
 
@@ -42,7 +42,7 @@ try{
     if (-not (Test-Path -Path $target)) {
 	try {
             New-Item -Path $target -ItemType Directory -ErrorAction Stop | Out-Null
-            Write-Output "Directory created successfully at: $target" -ForegroundColor Green
+            Write-Host "Directory created successfully at: $target" -ForegroundColor Green
 	} catch {
             Write-Error "Error creating directory: $_"
             return
