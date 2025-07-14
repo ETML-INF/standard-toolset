@@ -5,6 +5,14 @@
     "tags":"system"
   },
   {
+    "name":"rclone",
+    "tags":"system"
+  },
+  {
+    "name":"kopia",
+    "tags":"backup"
+  },
+  {
     "name":"looping",
     "bucket":"etml-inf",
     "tags":"db"
