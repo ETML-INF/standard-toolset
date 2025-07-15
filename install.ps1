@@ -51,13 +51,8 @@ try{
 
     # bootstrap.ps1 sets location to extracted archive directory
     # Rclone with archive content
-    $scoopdirectory="$target\scoop"
-    if (-not (Test-Path $scoopdirectory))
-    {
-	New-Item -ItemType Directory -Path $scoopdirectory
-    }
-    Write-Host "Syncing files"
-    & (Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName --progress .\scoop $scoopdirectory
+    Write-Host "Installing/Updating files..."
+    & (Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName sync --progress .\ $target
 
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
     & .\configure-user-environment.ps1 $target
