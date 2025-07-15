@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.0](https://github.com/ETML-INF/standard-toolset/compare/v1.5.1...v1.6.0) (2025-07-15)
+
+
+### Features
+
+* **apps:** added rclone(needed for install) and kopia as backup util ([b006db1](https://github.com/ETML-INF/standard-toolset/commit/b006db1956c018781cde16f91065127aea18b766))
+* **setup:** use bits instead of unreliable invoke-webrequest ([467faa1](https://github.com/ETML-INF/standard-toolset/commit/467faa158fafbd8a68a5c456a87a5552d11deb5b))
+
+
+### Bug Fixes
+
+* **archive:** includes .git folders ([8041cd4](https://github.com/ETML-INF/standard-toolset/commit/8041cd4aa8fae7b993af6aade281c318c6939fb6))
+* **env:** fix scoop.cmd path AND reg files with updated path ([064ad90](https://github.com/ETML-INF/standard-toolset/commit/064ad905bad6675921cade24c75c54c8afbfa9b7))
+* **install:** -Destination handling + directory creation in green ([b780edb](https://github.com/ETML-INF/standard-toolset/commit/b780edbd4c68c7620023f4e2dc35e2328ed6b320))
+* **install:** sync global archive file (not only scoop) ([8177fa8](https://github.com/ETML-INF/standard-toolset/commit/8177fa878cc0b810cc204f0ac89f07c5e8c9fb75))
+* **readme:** remove traces of bootstrap ([bee2553](https://github.com/ETML-INF/standard-toolset/commit/bee255326015c09ca84169ede8318c0699bfd38f))
+* **setup:** progress report and Nointeraction flag forward ([dc7ea05](https://github.com/ETML-INF/standard-toolset/commit/dc7ea0501f8205aa65e765b132518726fce2c6c8))
+
 ## [1.5.1](https://github.com/ETML-INF/standard-toolset/compare/v1.5.0...v1.5.1) (2025-07-12)
 
 
