@@ -57,6 +57,8 @@ function Main{
 	$archivedirectory = "$env:TEMP\toolset-$(New-Guid)"
 	Write-Output "About to extract $archivepath to $archivedirectory"
 	Expand-Archive $archivepath $archivedirectory
+	# Compress-Archive excludes (hard coded) .git directories.. they have been renamed before zipping, they need to be adjusted!
+	Get-ChildItem -Path $archivedirectory -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
 
 	# Install
 	Write-Output "About to launch install script"
