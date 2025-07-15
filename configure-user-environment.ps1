@@ -31,8 +31,24 @@ try {
 
     # For initial install : mainly restore "current" junctions (removed by Compress-Archive during build)
     # For further user setup: mainly set path for current user
+    $scoopdir = "$toolsetdir\scoop"
     Write-Host "Resetting scoop to mainly handle path settings for user"
-    & $toolsetdir\scoop\apps\scoop\current\bin\scoop.ps1 reset *
+    & $scoopdir\apps\scoop\current\bin\scoop.ps1 reset *
+    
+    # regen scoop special shims
+    Write-Output "Updating scoop shims with path $toolsetdir..."
+    $shimpath = "$scoopdir\shims"
+    @("$shimpath\scoop", "$shimpath\scoop.cmd","$shimpath\scoop.ps1") | ForEach-Object { 
+	$content = Get-Content $_ -Raw
+	$content -replace '[A-Z]:.*?\\scoop\\', "$scoopdir\" | Set-Content $_ -NoNewline
+    }
+
+    # Fix paths in reg files too
+    Write-Host "Fixing path to $toolsetdir for reg files..."
+    Get-ChildItem "$scoopdir\apps\*\current\*.reg" -Recurse | ForEach-Object {
+	$content = Get-Content $_ -Raw
+	$content -replace '[A-Z]:.*?\\\\scoop\\\\', "$($scoopdir -replace '\\', '\\')\\" | Set-Content $_ -NoNewline
+    }
 
     # Add context menu for vscode (now scoop should be in path...)
     $vscode = scoop prefix vscode
