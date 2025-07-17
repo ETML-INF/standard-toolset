@@ -63,10 +63,11 @@ jobs:
                 path: build\scoop\cache
                 key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
 
-      - name: Add scripts,readme,licence and version to build
+      - name: Add install scripts,readme,licence and version to build
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
+             cp install.ps1 build
              cp activate.ps1 build
              cp README.md build
              cp LICENSE build

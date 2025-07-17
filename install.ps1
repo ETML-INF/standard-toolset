@@ -52,13 +52,16 @@ try{
     # bootstrap.ps1 sets location to extracted archive directory
     # Rclone with archive content
     Write-Host "Installing/Updating files..."
+    # Compress-Archive excludes (hard coded) .git directories.. they have been renamed before zipping, they need to be adjusted!
+	Get-ChildItem -Path .\ -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
     $rclone=(Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName
-    & $rclone sync --progress .\ $target
+    # Exclude install to avoid confusion for end user (only activate.ps1 should be available in target dir)
+    & $rclone sync --progress --exclude /install.ps1,/scoop/persist .\ $target
 
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
     if(-not $target.StartsWith("\\")) # remote hosts cannot be activated through simple filesystem share... (must open a remote session...)
     {
-	& .\configure-user-environment.ps1 -Path $target -Nointeraction $true	
+	& .\activate.ps1 -Path $target -Nointeraction $true	
     }
     else{
 	Write-Warning "As host is remote, no activation is run..."
