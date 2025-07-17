@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.0](https://github.com/ETML-INF/standard-toolset/compare/v1.7.0...v1.8.0) (2025-07-17)
+
+
+### Features
+
+* **install:** do not copy install.ps1 ([7432f61](https://github.com/ETML-INF/standard-toolset/commit/7432f6116ec6cfdc01d79a86cfc0a7ee94faec5a))
+* **install:** let scoop persist dir as is ([7432f61](https://github.com/ETML-INF/standard-toolset/commit/7432f6116ec6cfdc01d79a86cfc0a7ee94faec5a))
+
+
+### Bug Fixes
+
+* **cicd:** put back install script ! ([7432f61](https://github.com/ETML-INF/standard-toolset/commit/7432f6116ec6cfdc01d79a86cfc0a7ee94faec5a))
+* **install:** use updated activate.ps1 ([7432f61](https://github.com/ETML-INF/standard-toolset/commit/7432f6116ec6cfdc01d79a86cfc0a7ee94faec5a))
+
 ## [1.7.0](https://github.com/ETML-INF/standard-toolset/compare/v1.6.0...v1.7.0) (2025-07-17)
 
 
