@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.0](https://github.com/ETML-INF/standard-toolset/compare/v1.6.0...v1.7.0) (2025-07-17)
+
+
+### Features
+
+* **setup:** allow install from local uncompressed archive ([73af5a4](https://github.com/ETML-INF/standard-toolset/commit/73af5a4aa90c68293cb58b4949a52594b1d2d508))
+
+
+### Bug Fixes
+
+* **archive:** add README and License ([73af5a4](https://github.com/ETML-INF/standard-toolset/commit/73af5a4aa90c68293cb58b4949a52594b1d2d508))
+* **deploy:** do not activate upon remote deployment ([73af5a4](https://github.com/ETML-INF/standard-toolset/commit/73af5a4aa90c68293cb58b4949a52594b1d2d508))
+* **install:** honor Nointeraction for activate.ps1 too ([73af5a4](https://github.com/ETML-INF/standard-toolset/commit/73af5a4aa90c68293cb58b4949a52594b1d2d508))
+* **README:** everything in french ([73af5a4](https://github.com/ETML-INF/standard-toolset/commit/73af5a4aa90c68293cb58b4949a52594b1d2d508))
+
 ## [1.6.0](https://github.com/ETML-INF/standard-toolset/compare/v1.5.1...v1.6.0) (2025-07-15)
 
 
