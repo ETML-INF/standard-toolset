@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory=$false,HelpMessage="Path where to expect toolset to be")][string]$Path="d:\data\inf-toolset"
+    [Parameter(Mandatory=$false,HelpMessage="Path where to expect toolset to be")][string]$Path="d:\data\inf-toolset",
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false
 )
 try {
     Set-StrictMode -Version Latest
@@ -11,7 +12,9 @@ try {
 	if (-not (Test-Path -Path $toolsetdir))
 	{
 	    Write-Output "Toolset not found in given/standard locations"
-	    $userInput = Read-Host "Enter custom toolset path (empty/ctrl-c to abort)"
+	    if(-not $Nointeraction){
+		$userInput = Read-Host "Enter custom toolset path (empty/ctrl-c to abort)"	
+	    }
 	    if ([string]::IsNullOrEmpty($userInput))
 	    {
 		Exit 1

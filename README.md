@@ -1,7 +1,9 @@
 # standard-toolset
-pour installer le toolset ETML portable
+Set d’outils standardisés pour l’ETML.
+Cette boîte à outils peut être facilement transportée/répliquée/déployée et contient uniquement des applications portables (pas de droit admin nécessaire).
 
-## Install
+La liste des apps est décrite dans le fichier [apps.json](apps.json)
+## Installation
 
 ### Cmd.exe
 
@@ -15,26 +17,34 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1 | Invoke-Expression
 ```
 
-#### Local and offline install
-If you already downloaded an archive, you can either
+#### En local ou offline
+Après avoir [téléchargé l’archive](https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.zip) on peut:
 
-- Reuse it adding -local $true as first parameter of setup.ps1 [online setup]
+- Éviter qu’elle soit téléchargée en ajoutant ‘-Local $true’ :
 
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 & ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1))) -Local $true
 ```
 
-**You may also give a path to an archive or/and a path where to install  (usefull for offline deployment or to accelerate deployment from local resources...)**
+- Indiquer clairement le chemin vers le zip ET/OU le répertoire de destination (utile pour le déploiement distant) ‘-Source ... -Destination ...’:
 
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 & ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1))) -Source "C:\downloads\toolset.zip" -Destination "\\host\d$\data"
 ```
 
+- Indiquer le chemin vers le dossier déjà décompressé (nécessite 7z ou Expand-Archive) ‘-Source c:\directory’:
+```pwsh
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+& ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1))) -Source "C:\downloads\toolset" -Destination "\\host\d$\data"
+```
 
+- Décompresser l’archive et lancer ‘install.ps1’ [complete offline]
 
-- Or extract it and run ‘install.ps1’ [complete offline]
+## **Activation**
+Quand le toolset a été installé sur une machine, il faut lancer ‘c:\inf-toolset\activate.ps1’ ou ‘d:data\inf-toolset\activate.ps1’ pour l’activer.
+Cela va finaliser l’installation (si nécessaire), ajouter les apps dans le PATH et ajouter les menus contextuels (pour vscode par exemple).
 
 ## CDC
 - pas de droit admin
@@ -52,7 +62,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 ### Avantages / Inconvénients
 Nomad: in house mais demande la maintenance et utilise actuellement symlink
 Winget: integré à windows, package plus compliqué à faire... pas de choix de destination d’installation (copie facile des programmes)
-Scoop: grande communauté (bcp d’apps), facile d’ajouter une app (bucket ETML ?), choix de destination... utilisation de shim au lieu de symlink (ok sur exfat)
+Scoop: grande communauté (bcp d’apps), facile d’ajouter une app (bucket ETML ?), choix de destination... utilisation de shim au lieu de symlink (ok sur exfat)
 
 ## Cycle
 Pour harmoniser les versions :

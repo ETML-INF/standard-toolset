@@ -1,8 +1,8 @@
 param(
     [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from in current directory (not recursive)")][bool]$Local=$false,
-    [Parameter(Mandatory=$false,HelpMessage="Give a file path to get archive from (instead of github). Implies -local" )][string]$Source=$null,
+    [Parameter(Mandatory=$false,HelpMessage="Path to a toolset.zip file OR a directory where toolset.zip has already been extracted (to accelerate deployment)" )][string]$Source=$null,
     [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
-    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$true
 )
 #Use functions to avoid having utils functions at beginning...
 function Main{
@@ -54,9 +54,20 @@ function Main{
 	}
 	
 	# Extract
-	$archivedirectory = "$env:TEMP\toolset-$(New-Guid)"
-	Write-Output "About to extract $archivepath to $archivedirectory"
-	Expand-Archive $archivepath $archivedirectory
+	if(Test-Path -Path "$archivepath" -PathType Container)
+	{
+	    $archivedirectory=$archivepath
+	    if(-not (Test-Path -Path "$archivepath\version.txt" -and Test-Path -Path "$archivepath\scoop\apps\scoop\current\bin\scoop.ps1"))
+	    {
+		Write-Error "$archivedirectory seems invalid, please check, aborting install!"
+		Exit 3
+	    }
+	}
+	else{
+	    $archivedirectory = "$env:TEMP\toolset-$(New-Guid)"
+	    Write-Output "About to extract $archivepath to $archivedirectory"
+	    Expand-Archive $archivepath $archivedirectory
+	}
 	# Compress-Archive excludes (hard coded) .git directories.. they have been renamed before zipping, they need to be adjusted!
 	Get-ChildItem -Path $archivedirectory -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
 

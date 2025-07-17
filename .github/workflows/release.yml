@@ -63,16 +63,18 @@ jobs:
                 path: build\scoop\cache
                 key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
 
-      - name: Add script and versions
+      - name: Add scripts,readme,licence and version to build
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |
-             cp install.ps1 build
-             cp configure-user-environment.ps1 build
-             echo "Now creating archive"
+             cp activate.ps1 build
+             cp README.md build
+             cp LICENSE build
+             echo ${{steps.release.outputs.release_created}} > build/VERSION.txt
 
-      # WARNING: use full path to scoop as PATH var has died in previous step 
-      - name: Create archive (purging cache before to reduce archive size)
+      # WARNING: use full path to scoop as PATH var has died in previous step
+      # .git is renamed because of Compress-Archive builtin exclusion of .git and to avoid external dep on tar.exe or other...
+      - name: Compress archive (cleaning cache and moving .git to .git-force)
         if: steps.release.outputs.release_created
         shell: pwsh
         run: |

@@ -52,13 +52,20 @@ try{
     # bootstrap.ps1 sets location to extracted archive directory
     # Rclone with archive content
     Write-Host "Installing/Updating files..."
-    & (Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName sync --progress .\ $target
+    $rclone=(Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName
+    & $rclone sync --progress .\ $target
 
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
-    & .\configure-user-environment.ps1 $target
+    if(-not $target.StartsWith("\\")) # remote hosts cannot be activated through simple filesystem share... (must open a remote session...)
+    {
+	& .\configure-user-environment.ps1 -Path $target -Nointeraction $true	
+    }
+    else{
+	Write-Warning "As host is remote, no activation is run..."
+    }
 
-    Write-Host "Toolset install/update terminated on host" -ForegroundColor Green
-    Write-Warning "For other users, please run 'powershell $target\configure-user-environment.ps1' to add desktop shortcut and setup PATH"
+    Write-Host "Toolset install/update terminated" -ForegroundColor Green
+    Write-Warning "For user activation, please run 'powershell $target\activate.ps1' to add desktop shortcut and setup PATH"
 
 }
 catch {
