@@ -77,10 +77,11 @@ function Main{
 	& .\install.ps1 -Destination "$Destination" -Nointeraction $Nointeraction
 
 	# Cleaning up
-	Remove-Item $archivedirectory
+	Write-Output "Trying to clean up some stuff"
+	Remove-Item -Recurse "$archivedirectory/scoop" 
 	if(!$local)
 	{
-	    Remove-Item $archivepath	
+	    Remove-Item $archivepath
 	}
 	
     }
