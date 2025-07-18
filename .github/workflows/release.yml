@@ -71,7 +71,7 @@ jobs:
              cp activate.ps1 build
              cp README.md build
              cp LICENSE build
-             echo ${{steps.release.outputs.release_created}} > build/VERSION.txt
+             echo ${{steps.release.outputs.tag_name}} > build/VERSION.txt
 
       # WARNING: use full path to scoop as PATH var has died in previous step
       # .git is renamed because of Compress-Archive builtin exclusion of .git and to avoid external dep on tar.exe or other...
