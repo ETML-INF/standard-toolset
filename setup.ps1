@@ -57,7 +57,7 @@ function Main{
 	if(Test-Path -Path "$archivepath" -PathType Container)
 	{
 	    $archivedirectory=$archivepath
-	    if(-not (Test-Path -Path "$archivepath\version.txt" -and Test-Path -Path "$archivepath\scoop\apps\scoop\current\bin\scoop.ps1"))
+	    if(-not ((Test-Path -Path "$archivepath\version.txt") -and (Test-Path -Path "$archivepath\scoop\apps\scoop\current\bin\scoop.ps1")))
 	    {
 		Write-Error "$archivedirectory seems invalid, please check, aborting install!"
 		Exit 3
