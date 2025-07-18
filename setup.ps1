@@ -74,7 +74,7 @@ function Main{
 	# Install
 	Write-Output "About to launch install script"
 	Set-Location $archivedirectory
-	& .\install.ps1 -Destination "$Destination" -Nointeraction "$Nointeraction"
+	& .\install.ps1 -Destination "$Destination" -Nointeraction $Nointeraction
 
 	# Cleaning up
 	Remove-Item $archivedirectory
