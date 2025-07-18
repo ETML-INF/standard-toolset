@@ -56,7 +56,7 @@ try{
 	Get-ChildItem -Path .\ -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
     $rclone=(Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName
     # Exclude install to avoid confusion for end user (only activate.ps1 should be available in target dir)
-    & $rclone sync --progress --exclude /install.ps1,/scoop/persist .\ $target
+    & $rclone sync --progress --exclude /install.ps1 --exclude /scoop/persist .\ $target
 
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
     if(-not $target.StartsWith("\\")) # remote hosts cannot be activated through simple filesystem share... (must open a remote session...)
