@@ -94,7 +94,7 @@ function DownloadWithBits {
     param(
         [string]$Url,
         [string]$Destination,
-        [int]$TimeoutMinutes = 30,
+        [int]$TimeoutMinutes = 75,
         [int]$AvWaitSeconds = 5 #av=antivirus
     )
     
@@ -164,7 +164,7 @@ function DownloadWithBits {
         }
         
     } catch {
-        Write-Error "BITS download failed: $($_.Exception.Message)"
+        Write-Warning "BITS download failed: $($_.Exception.Message)"
         return $false
     }
 }
