@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.1](https://github.com/ETML-INF/standard-toolset/compare/v1.8.0...v1.8.1) (2025-07-18)
+
+
+### Bug Fixes
+
+* **cicd:** write version(tag_name) instead of release status ([1c890e1](https://github.com/ETML-INF/standard-toolset/commit/1c890e12448ce8b0e4834461d4b22efa6a693829))
+* **install:** exclude syntax without comma ([1c890e1](https://github.com/ETML-INF/standard-toolset/commit/1c890e12448ce8b0e4834461d4b22efa6a693829))
+* **install:** exclude syntax without comma ([1d19bdf](https://github.com/ETML-INF/standard-toolset/commit/1d19bdf48616fde6aaeccae975bdaabbf3932a02))
+* **nointeraction:** as boolean instead of string ([38bc49a](https://github.com/ETML-INF/standard-toolset/commit/38bc49a08db6704d751cc73d07714946cf75b39c))
+* **setup:** better chance of cleanup + message ([1d454d1](https://github.com/ETML-INF/standard-toolset/commit/1d454d186c41105c5a0f192f9e60841ee3289f36))
+* **setup:** correct check uncompressed archive source ([272bbea](https://github.com/ETML-INF/standard-toolset/commit/272bbeaab8c8f144059dfe763c15bebe6d736b77))
+* **setup:** download error stops setup ([c8d31c8](https://github.com/ETML-INF/standard-toolset/commit/c8d31c859e6d7d988bb323a528f8e10f30305724))
+* **setup:** download timeout increased to 75m ([c8d31c8](https://github.com/ETML-INF/standard-toolset/commit/c8d31c859e6d7d988bb323a528f8e10f30305724))
+
 ## [1.8.0](https://github.com/ETML-INF/standard-toolset/compare/v1.7.0...v1.8.0) (2025-07-17)
 
 
