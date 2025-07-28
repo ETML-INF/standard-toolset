@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.0](https://github.com/ETML-INF/standard-toolset/compare/v1.8.1...v1.9.0) (2025-07-28)
+
+
+### Features
+
+* **install:** add -Source to install.ps1 to be able to run dev ([4b07089](https://github.com/ETML-INF/standard-toolset/commit/4b070892aa5661d5050f3354e6b5bf0091294aa4))
+* **install:** default to c:\inf-toolset and secondary to d:\data ([4b07089](https://github.com/ETML-INF/standard-toolset/commit/4b070892aa5661d5050f3354e6b5bf0091294aa4))
+* **release:** print app versions ([9df4c18](https://github.com/ETML-INF/standard-toolset/commit/9df4c18b2e47e53c08b52882360604d81eb8691e))
+
 ## [1.8.1](https://github.com/ETML-INF/standard-toolset/compare/v1.8.0...v1.8.1) (2025-07-18)
 
 
