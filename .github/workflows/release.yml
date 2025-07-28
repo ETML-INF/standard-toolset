@@ -52,6 +52,7 @@ jobs:
         shell: pwsh
         run: |
              build\scoop\shims\scoop list | Select-Object Name, Version > hash.txt 2>$null
+             Get-Content hash.txt 
              $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
              echo "hash=$hash" >> $env:GITHUB_OUTPUT
              
