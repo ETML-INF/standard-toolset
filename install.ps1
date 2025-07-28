@@ -1,12 +1,13 @@
 param(
     [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false,
-    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null
+    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
+    [Parameter(Mandatory=$false,HelpMessage="Custom source (decompressed archive) path")][string]$Source=".\"
 )
 Set-StrictMode -Version Latest
 
-$target_folder = if([string]::IsNullOrEmpty($Destination)){"D:\data"}else{$Destination} 
+$target_folder = if([string]::IsNullOrEmpty($Destination)){"C:\"}else{$Destination} 
 $target_subfolder = "inf-toolset"
-$target_folder_alternative = "C:\$target_subfolder"
+$target_folder_alternative = "D:\data\$target_subfolder"
 
 try{
 
@@ -18,6 +19,11 @@ try{
     } else {
 	# If the folder doesn't exist, prompt the user
 	Write-Warning "$target_folder folder not found."
+	if ($target_folder.StartsWith("\\"))
+	{
+	    Write-Output "As $target_folder is an unreachable UNC path (network issue ?), installation will abort"
+	    Exit 4
+	}
 	if ($Nointeraction)
 	{
 	    $userInput=""
@@ -53,14 +59,15 @@ try{
     # Rclone with archive content
     Write-Host "Installing/Updating files..."
     # Compress-Archive excludes (hard coded) .git directories.. they have been renamed before zipping, they need to be adjusted!
-	Get-ChildItem -Path .\ -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
-    $rclone=(Get-ChildItem -Path "scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName
+    Get-ChildItem -Path $Source -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
+    $rclone=(Get-ChildItem -Path "$Source\scoop\apps\rclone\*\rclone.exe" | Select-Object -First 1).FullName
     # Exclude install to avoid confusion for end user (only activate.ps1 should be available in target dir)
-    & $rclone sync --progress --exclude /install.ps1 --exclude /scoop/persist .\ $target
+    & $rclone sync --progress --exclude /install.ps1 --exclude /scoop/persist $Source $target
 
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
     if(-not $target.StartsWith("\\")) # remote hosts cannot be activated through simple filesystem share... (must open a remote session...)
     {
+	#Warning: if $source is not .\ will not use activate from source but from current folder...(easier dev)
 	& .\activate.ps1 -Path $target -Nointeraction $true	
     }
     else{

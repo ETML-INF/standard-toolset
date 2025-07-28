@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$false,HelpMessage="Path where to expect toolset to be")][string]$Path="d:\data\inf-toolset",
+    [Parameter(Mandatory=$false,HelpMessage="Path where to expect toolset to be")][string]$Path="C:\inf-toolset",
     [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false
 )
 try {
@@ -8,7 +8,7 @@ try {
     $toolsetdir = $Path
     if (-not (Test-Path -Path $toolsetdir))
     {
-	$toolsetdir = "C:\inf-toolset"
+	$toolsetdir = "d:\data\inf-toolset"
 	if (-not (Test-Path -Path $toolsetdir))
 	{
 	    Write-Output "Toolset not found in given/standard locations"
