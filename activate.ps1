@@ -23,7 +23,7 @@ try {
 	    {
 		# Otherwise use whatever the user entered
 		$toolsetdir = $userInput
-		Write-Output "Using custom path: $target"
+		Write-Output "Using custom path: $toolsetdir"
 	    }
 	    else{
 		Write-Error "$userinput does not seem to exist, aborting"
