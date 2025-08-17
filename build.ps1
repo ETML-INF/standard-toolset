@@ -1,8 +1,14 @@
 param(
     [Parameter(Mandatory=$false,HelpMessage="Path to json file containing app definitions")]
-    [string]$appJson = "apps.json"
-    
+    [string]$appJson = "apps.json",
+    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
 )
+
+# Start transcript for logging (parallel-safe with unique filename)
+if (-not $ConsoleOutput) {
+    $logFile = "$PSScriptRoot\build-$PID.log"
+    Start-Transcript -Path $logFile -Append -Force
+}
 
 try {
     Set-StrictMode -Version Latest
@@ -43,4 +49,8 @@ try {
 }
 catch {
     Write-Error "Something went wrong: $_. "
+} finally {
+    if (-not $ConsoleOutput) {
+        Stop-Transcript
+    }
 }

@@ -1,7 +1,14 @@
 param(
     [Parameter(Mandatory=$false,HelpMessage="Path where to expect toolset to be")][string]$Path="C:\inf-toolset",
-    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false,
+    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
 )
+# Start transcript for logging (parallel-safe with unique filename)
+if (-not $ConsoleOutput) {
+    $logFile = "$PSScriptRoot\activate-$PID.log"
+    Start-Transcript -Path $logFile -Append -Force
+}
+
 try {
     Set-StrictMode -Version Latest
     # Validate current install
@@ -99,4 +106,8 @@ try {
 }
 catch {
     Write-Error "Something went wrong: $_. "
+} finally {
+    if (-not $ConsoleOutput) {
+        Stop-Transcript
+    }
 }

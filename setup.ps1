@@ -2,10 +2,17 @@ param(
     [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from in current directory (not recursive)")][bool]$Local=$false,
     [Parameter(Mandatory=$false,HelpMessage="Path to a toolset.zip file OR a directory where toolset.zip has already been extracted (to accelerate deployment)" )][string]$Source=$null,
     [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
-    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$true
+    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$true,
+    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
 )
 #Use functions to avoid having utils functions at beginning...
 function Main{
+    # Start transcript for logging (parallel-safe with unique filename)
+    if (-not $ConsoleOutput) {
+        $logFile = "$PSScriptRoot\setup-$PID.log"
+        Start-Transcript -Path $logFile -Append -Force
+    }
+    
     try {
 	Set-StrictMode -Version Latest
 
@@ -88,6 +95,10 @@ function Main{
     catch {
 	Write-Error "Something went wrong: $_. Please contact the maintainer for more info..."
 	Write-Host "Items still available: $archivepath, $archivedirectory"
+    } finally {
+        if (-not $ConsoleOutput) {
+            Stop-Transcript
+        }
     }
 }
 
@@ -120,7 +131,7 @@ function DownloadWithBits {
 		
 		$progressText = "Progress: $percent% ($mbTransferred MB / $mbTotal MB)"
 		#`r move cursor at the beginning of the line
-                Write-Host ("`r" + " " * 120 + "`r" + $progressText) -NoNewline
+                if ($ConsoleOutput) { Write-Host ("`r" + " " * 120 + "`r" + $progressText) -NoNewline }
             }
             
             if ((Get-Date) -gt $timeout) {
@@ -132,7 +143,7 @@ function DownloadWithBits {
         } while ($progress.JobState -eq "Transferring" -or $progress.JobState -eq "Connecting" -or $progress.JobState -eq "TransientError")
         
         if ($progress.JobState -eq "Transferred") {
-            Write-Host ""
+            if ($ConsoleOutput) { Write-Host "" }
             Complete-BitsTransfer -BitsJob $job
             Write-Output "✓ Download completed successfully"
             
@@ -159,7 +170,7 @@ function DownloadWithBits {
             
             return $true
         } else {
-            Write-Host ""
+            if ($ConsoleOutput) { Write-Host "" }
             Remove-BitsTransfer -BitsJob $job
             throw "Download failed: $($progress.JobState) - $($progress.ErrorDescription)"
         }

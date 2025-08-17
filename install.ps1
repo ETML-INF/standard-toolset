@@ -1,9 +1,16 @@
 param(
     [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$false,
     [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
-    [Parameter(Mandatory=$false,HelpMessage="Custom source (decompressed archive) path")][string]$Source=".\"
+    [Parameter(Mandatory=$false,HelpMessage="Custom source (decompressed archive) path")][string]$Source=".\",
+    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
 )
 Set-StrictMode -Version Latest
+
+# Start transcript for logging (parallel-safe with unique filename)
+if (-not $ConsoleOutput) {
+    $logFile = "$PSScriptRoot\install-$PID.log"
+    Start-Transcript -Path $logFile -Append -Force
+}
 
 $target_folder = if([string]::IsNullOrEmpty($Destination)){"C:\"}else{$Destination} 
 $target_subfolder = "inf-toolset"
@@ -80,4 +87,8 @@ try{
 }
 catch {
     Write-Error "Error installing toolset: $_"
+} finally {
+    if (-not $ConsoleOutput) {
+        Stop-Transcript
+    }
 }
