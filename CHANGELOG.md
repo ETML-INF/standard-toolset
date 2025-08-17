@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0](https://github.com/ETML-INF/standard-toolset/compare/v1.9.0...v1.10.0) (2025-08-17)
+
+
+### Features
+
+* **print:** added transcript to be able to use parallel mode ([80e7f63](https://github.com/ETML-INF/standard-toolset/commit/80e7f63069024963bae41026151e8937b1eb04bd))
+
+
+### Bug Fixes
+
+* **activate:** log custom path correctly ([cd7ea7a](https://github.com/ETML-INF/standard-toolset/commit/cd7ea7a7debcee4387a8bf58854cfd5714ce487c))
+
 ## [1.9.0](https://github.com/ETML-INF/standard-toolset/compare/v1.8.1...v1.9.0) (2025-08-12)
 
 
