@@ -71,7 +71,8 @@ function Main{
 	    }
 	}
 	else{
-	    $archivedirectory = "$env:TEMP\toolset-$(New-Guid)"
+	    # $env:TEMP may bring "path too long issue..."
+	    $archivedirectory = "$env:USERPROFILE\ets$(Get-Random)"
 	    Write-Output "About to extract $archivepath to $archivedirectory"
 	    Expand-Archive $archivepath $archivedirectory
 	}
@@ -85,7 +86,15 @@ function Main{
 
 	# Cleaning up
 	Write-Output "Trying to clean up some stuff"
-	Remove-Item -Recurse "$archivedirectory/scoop" 
+	try {
+	    Remove-Item -Force -Recurse "$archivedirectory/scoop"
+	    Remove-Item -Force -Recurse "$archivedirectory"    
+	}
+	catch {
+	    Write-Warning "Unable to clean $archivedirectory : $_. "
+	}
+
+	
 	if(!$local)
 	{
 	    Remove-Item $archivepath
