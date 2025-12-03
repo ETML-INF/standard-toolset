@@ -61,6 +61,11 @@
     "//comment":"vscodium could be more ethical but it has less plugins...",
     "name":"vscode",
     "tags":"dev"
-  }
+  },
+  {
+    "name":"filezilla",
+    "tags":"devops"
+  },
+  
 ]
 
