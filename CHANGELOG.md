@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.10.0](https://github.com/ETML-INF/standard-toolset/compare/v1.9.0...v1.10.0) (2025-12-03)
+
+
+### Features
+
+* **apps:** added filezilla ([80d2a74](https://github.com/ETML-INF/standard-toolset/commit/80d2a748969b5d9d33bff17aba64ec1020be208e))
+* **print:** added transcript to be able to use parallel mode ([80e7f63](https://github.com/ETML-INF/standard-toolset/commit/80e7f63069024963bae41026151e8937b1eb04bd))
+
+
+### Bug Fixes
+
+* **activate:** log custom path correctly ([cd7ea7a](https://github.com/ETML-INF/standard-toolset/commit/cd7ea7a7debcee4387a8bf58854cfd5714ce487c))
+* **setup:** try to avoid "path too long" limitation... ([3365ca7](https://github.com/ETML-INF/standard-toolset/commit/3365ca7e888ed9f8068657355400439b99eaafcb))
+
 ## [1.9.0](https://github.com/ETML-INF/standard-toolset/compare/v1.8.1...v1.9.0) (2025-08-12)
 
 
