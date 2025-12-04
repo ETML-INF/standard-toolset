@@ -65,6 +65,10 @@
   {
     "name":"filezilla",
     "tags":"devops"
+  },
+  {
+     "name":"laragon",
+     "tags":"dev"
   }
   
 ]
