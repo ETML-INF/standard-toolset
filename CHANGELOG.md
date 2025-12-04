@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/ETML-INF/standard-toolset/compare/v1.10.0...v1.11.0) (2025-12-04)
+
+
+### Features
+
+* **apps:** add laragon ([5939f19](https://github.com/ETML-INF/standard-toolset/commit/5939f19fe8b42093468efdacbc56240317f7c8c8))
+
 ## [1.10.0](https://github.com/ETML-INF/standard-toolset/compare/v1.9.0...v1.10.0) (2025-12-03)
 
 
