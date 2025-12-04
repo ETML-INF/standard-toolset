@@ -46,6 +46,19 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 Quand le toolset a été installé sur une machine, il faut lancer ‘c:\inf-toolset\activate.ps1’ ou ‘d:data\inf-toolset\activate.ps1’ pour l’activer.
 Cela va finaliser l’installation (si nécessaire), ajouter les apps dans le PATH et ajouter les menus contextuels (pour vscode par exemple).
 
+## Utilisation
+### Versions de node
+Puisque NVM requiert des droits admin, pour jongler avec différentes versions d’un logiciel (par exemple node), il faut [activer le toolset](README.md#--activation--) et adapter l’exemple suivant à ses besoins:
+
+``` shell
+echo "Current installed node versions: " && scoop list nodejs
+echo "Available versions : " && scoop search nodejs
+echo "Install custom version: " && scoop install nodejs18
+echo "Install another version: " && scoop install nodejs20
+echo "Switch to an installed version: " && scoop reset nodejs20
+
+```
+
 ## CDC
 - pas de droit admin
 - installation à un endroit choisi (d:\...)
