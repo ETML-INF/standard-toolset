@@ -71,8 +71,13 @@
     "tags":"devops"
   },
   {
+	 "//comment":"in case of docker issues...",
      "name":"laragon",
      "tags":"dev"
+  },
+  {
+	 "name":"python3",
+	 "tags":"devops"
   }
   
 ]
