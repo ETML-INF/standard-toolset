@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$false,HelpMessage="Path to a toolset.zip file OR a directory where toolset.zip has already been extracted (to accelerate deployment)" )][string]$Source=$null,
     [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
     [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$true,
-    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
+    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true,
+    [Parameter(Mandatory=$false,HelpMessage="Specific version tag to download (default: latest)")][string]$Version="latest"
 )
 #Use functions to avoid having utils functions at beginning...
 function Main{
@@ -50,7 +51,14 @@ function Main{
 	# Download archive
 	else{
 	    Write-Output "About to download toolset..."
-	    $url="https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.zip"
+
+	    # Build URL based on version parameter
+	    if ($Version -eq "latest") {
+	        $url = "https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.zip"
+	    } else {
+	        $url = "https://github.com/ETML-INF/standard-toolset/releases/download/$Version/toolset.zip"
+	    }
+
 	    $timestamp = Get-Date -format yyyy_MM_dd_H_mm_ss
 	    $archivename = "toolset-$timestamp"
 	    $archivepath = "$env:TEMP\$archivename.zip"
@@ -64,7 +72,7 @@ function Main{
 	if(Test-Path -Path "$archivepath" -PathType Container)
 	{
 	    $archivedirectory=$archivepath
-	    if(-not ((Test-Path -Path "$archivepath\version.txt") -and (Test-Path -Path "$archivepath\scoop\apps\scoop\current\bin\scoop.ps1")))
+	    if(-not ((Test-Path -Path "$archivepath\VERSION.txt") -and (Test-Path -Path "$archivepath\scoop\apps\scoop\current\bin\scoop.ps1")))
 	    {
 		Write-Error "$archivedirectory seems invalid, please check, aborting install!"
 		Exit 3

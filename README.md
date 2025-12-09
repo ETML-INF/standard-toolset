@@ -43,8 +43,38 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 - Décompresser l’archive et lancer ‘install.ps1’ [complete offline]
 
 ## **Activation**
-Quand le toolset a été installé sur une machine, il faut lancer ‘c:\inf-toolset\activate.ps1’ ou ‘d:data\inf-toolset\activate.ps1’ pour l’activer.
-Cela va finaliser l’installation (si nécessaire), ajouter les apps dans le PATH et ajouter les menus contextuels (pour vscode par exemple).
+Quand le toolset a été installé sur une machine, il faut lancer 'c:\inf-toolset\activate.ps1' ou 'd:data\inf-toolset\activate.ps1' pour l'activer.
+Cela va finaliser l'installation (si nécessaire), ajouter les apps dans le PATH et ajouter les menus contextuels (pour vscode par exemple).
+
+## **Mise à jour (Update)**
+
+Pour mettre à jour une installation existante vers la dernière version, utilisez le script `update.ps1` :
+
+```pwsh
+# Mise à jour automatique (télécharge uniquement les modifications)
+powershell -ExecutionPolicy Bypass -File "C:\inf-toolset\update.ps1"
+
+# Ou spécifier le chemin d'installation
+powershell -ExecutionPolicy Bypass -Command "& update.ps1 -InstallPath 'D:\data\inf-toolset'"
+
+# Forcer un téléchargement complet (ignorer les deltas)
+powershell -ExecutionPolicy Bypass -Command "& update.ps1 -ForceFull"
+```
+
+### Avantages du système de mise à jour delta
+
+- **Téléchargements réduits** : Seulement 50-300 MB au lieu de 1 GB complet
+- **Mises à jour rapides** : Télécharge uniquement les applications modifiées
+- **Toujours disponible hors ligne** : Le package complet `toolset.zip` reste disponible pour les déploiements de masse
+
+### Fonctionnement
+
+Le système compare automatiquement votre version installée avec la dernière version disponible et :
+1. Télécharge les packages delta (uniquement les apps modifiées) si disponibles
+2. Applique les changements à votre installation existante
+3. Revient au téléchargement complet si nécessaire (première installation, trop de versions d'écart)
+
+**Note** : Les installations antérieures à v1.9.0 ne disposent pas de suivi de version et nécessiteront un téléchargement complet.
 
 ## Utilisation
 ### Versions de node

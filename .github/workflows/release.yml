@@ -85,6 +85,132 @@ jobs:
              Get-ChildItem -Path "build" -Recurse -Directory -Force -Filter ".git" | Rename-Item -NewName ".git-force"
              Compress-Archive build/* toolset.zip
 
+      - name: Generate delta package from build
+        if: steps.release.outputs.release_created
+        id: delta-gen
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # Get previous release tag
+          $tags = git tag --sort=-v:refname | Out-String -Stream
+          $currentTag = "${{ steps.release.outputs.tag_name }}"
+          $previousTag = $tags | Where-Object { $_ -ne $currentTag -and $_ -ne "" } | Select-Object -First 1
+
+          if (-not $previousTag) {
+            Write-Host "No previous release found (this is the first release), skipping delta"
+            echo "created=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          echo "previous_tag=$previousTag" >> $env:GITHUB_OUTPUT
+          Write-Host "Comparing with previous release: $previousTag"
+
+          # Download ONLY previous versions.txt (tiny file)
+          try {
+            gh release download $previousTag -p "versions.txt" -O previous-versions.txt --repo ETML-INF/standard-toolset
+          } catch {
+            Write-Warning "Failed to download previous versions.txt: $_"
+            echo "created=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          # Compare versions to find changed apps
+          Write-Host "Analyzing package changes..."
+          $prevContent = Get-Content previous-versions.txt | Out-String
+          $currContent = Get-Content versions.txt | Out-String
+
+          # Parse scoop list output (Name Version columns)
+          $prevApps = @{}
+          $prevContent -split "`n" | ForEach-Object {
+            if ($_ -match '^\s*(\S+)\s+(\S+)\s*$') {
+              $prevApps[$matches[1]] = $matches[2]
+            }
+          }
+
+          $changedApps = @()
+          $currContent -split "`n" | ForEach-Object {
+            if ($_ -match '^\s*(\S+)\s+(\S+)\s*$') {
+              $name = $matches[1]
+              $version = $matches[2]
+
+              if (-not $prevApps.ContainsKey($name)) {
+                Write-Host "  + New: $name $version" -ForegroundColor Green
+                $changedApps += $name
+              } elseif ($prevApps[$name] -ne $version) {
+                Write-Host "  ↑ Updated: $name ($($prevApps[$name]) -> $version)" -ForegroundColor Yellow
+                $changedApps += $name
+              }
+            }
+          }
+
+          if ($changedApps.Count -eq 0) {
+            Write-Host "No application changes detected, skipping delta generation"
+            echo "created=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          Write-Host ""
+          Write-Host "Creating delta package with $($changedApps.Count) changed app(s)..."
+
+          # Create delta directory structure
+          New-Item -ItemType Directory -Path delta/scoop/apps -Force | Out-Null
+
+          # Copy ONLY changed apps from the already-built installation (in build/ directory)
+          foreach ($appName in $changedApps) {
+            $appPath = "build/scoop/apps/$appName"
+            if (Test-Path $appPath) {
+              Write-Host "  Copying $appName..." -ForegroundColor Gray
+              Copy-Item -Recurse -Force $appPath delta/scoop/apps/
+            } else {
+              Write-Warning "  App path not found: $appPath"
+            }
+          }
+
+          # Copy necessary scoop infrastructure (shims for new apps)
+          Write-Host "Copying scoop shims..."
+          if (Test-Path "build/scoop/shims") {
+            Copy-Item -Recurse -Force build/scoop/shims delta/scoop/
+          }
+
+          # Copy metadata and scripts
+          Copy-Item build/VERSION.txt delta/ -ErrorAction SilentlyContinue
+          Copy-Item build/versions.txt delta/ -ErrorAction SilentlyContinue
+          Copy-Item build/install.ps1 delta/ -ErrorAction SilentlyContinue
+          Copy-Item build/activate.ps1 delta/ -ErrorAction SilentlyContinue
+          Copy-Item build/README.md delta/ -ErrorAction SilentlyContinue
+          Copy-Item build/LICENSE delta/ -ErrorAction SilentlyContinue
+
+          # Create delta manifest
+          $manifest = @{
+            from_version = $previousTag
+            to_version = $currentTag
+            changed_apps = $changedApps
+            app_count = $changedApps.Count
+            type = "delta"
+            generated_at = (Get-Date -Format "o")
+          }
+          $manifest | ConvertTo-Json | Out-File delta/DELTA-MANIFEST.json -Encoding utf8
+
+          # Compress delta
+          $deltaFileName = "delta-from-$previousTag.zip"
+          Write-Host "Compressing delta archive: $deltaFileName"
+          Compress-Archive delta/* $deltaFileName -Force
+
+          # Calculate and display savings
+          if (Test-Path toolset.zip) {
+            $deltaSize = (Get-Item $deltaFileName).Length / 1MB
+            $fullSize = (Get-Item toolset.zip).Length / 1MB
+            $savings = [math]::Round(($fullSize - $deltaSize) / $fullSize * 100, 1)
+
+            Write-Host ""
+            Write-Host "  Delta package created successfully!" -ForegroundColor Green
+            Write-Host "  Delta size: $([math]::Round($deltaSize, 1)) MB" -ForegroundColor Cyan
+            Write-Host "  Full size: $([math]::Round($fullSize, 1)) MB" -ForegroundColor Cyan
+            Write-Host "  Bandwidth savings: $savings%" -ForegroundColor Green
+          }
+
+          echo "created=true" >> $env:GITHUB_OUTPUT
+
       - name: Upload archive
         if: ${{steps.release.outputs.release_created}}
         env:
@@ -92,4 +218,19 @@ jobs:
         run: |
           gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
           gh release upload ${{ steps.release.outputs.tag_name }} versions.txt
+
+      - name: Upload delta package
+        if: steps.release.outputs.release_created && steps.delta-gen.outputs.created == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $deltaFile = "delta-from-${{ steps.delta-gen.outputs.previous_tag }}.zip"
+          if (Test-Path $deltaFile) {
+            Write-Host "Uploading delta package: $deltaFile"
+            gh release upload ${{ steps.release.outputs.tag_name }} $deltaFile
+            Write-Host "Delta package uploaded successfully!" -ForegroundColor Green
+          } else {
+            Write-Warning "Delta package not found, skipping upload"
+          }
 

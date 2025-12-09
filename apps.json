@@ -50,6 +50,10 @@
     "tags":"project,devops"
   },
   {
+      "name":"gh",
+      "tags":"devops"
+  },
+  {
     "name":"draw.io",
     "tags":"doc"
   },

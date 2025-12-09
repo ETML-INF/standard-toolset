@@ -71,6 +71,16 @@ try{
     # Exclude install to avoid confusion for end user (only activate.ps1 should be available in target dir)
     & $rclone sync --progress --exclude /install.ps1 --exclude /scoop/persist $Source $target
 
+    # Copy version tracking files to target directory
+    if (Test-Path "$Source\VERSION.txt") {
+        Copy-Item "$Source\VERSION.txt" "$target\VERSION.txt" -Force
+        Write-Output "Version file copied to installation"
+    }
+    if (Test-Path "$Source\versions.txt") {
+        Copy-Item "$Source\versions.txt" "$target\versions.txt" -Force
+        Write-Output "Package list copied to installation"
+    }
+
     # Configure environment for current user (vscode context menu+shortcut) AND restore "current" junctions !!!
     if(-not $target.StartsWith("\\")) # remote hosts cannot be activated through simple filesystem share... (must open a remote session...)
     {
