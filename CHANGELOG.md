@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.11.0](https://github.com/ETML-INF/standard-toolset/compare/v1.10.0...v1.11.0) (2025-12-16)
+
+
+### Features
+
+* **apps:** add laragon ([5939f19](https://github.com/ETML-INF/standard-toolset/commit/5939f19fe8b42093468efdacbc56240317f7c8c8))
+* **apps:** add python3 asked by MMN (devops cicd) ([e1e1e30](https://github.com/ETML-INF/standard-toolset/commit/e1e1e30481d14d668a308c97889c366a35e60994))
+
+
+### Bug Fixes
+
+* **readme:** ajout du backslash manquant après la lettre de lecteur ([5fe2796](https://github.com/ETML-INF/standard-toolset/commit/5fe2796676725208a2aaab3f44bcc20748eda256))
+
 ## [1.10.0](https://github.com/ETML-INF/standard-toolset/compare/v1.9.0...v1.10.0) (2025-12-03)
 
 
