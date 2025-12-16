@@ -43,7 +43,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 - Décompresser l’archive et lancer ‘install.ps1’ [complete offline]
 
 ## **Activation**
-Quand le toolset a été installé sur une machine, il faut lancer ‘c:\inf-toolset\activate.ps1’ ou ‘d:data\inf-toolset\activate.ps1’ pour l’activer.
+Quand le toolset a été installé sur une machine, il faut lancer ‘c:\inf-toolset\activate.ps1’ ou ‘d:\data\inf-toolset\activate.ps1’ pour l’activer.
 Cela va finaliser l’installation (si nécessaire), ajouter les apps dans le PATH et ajouter les menus contextuels (pour vscode par exemple).
 
 ## Utilisation
