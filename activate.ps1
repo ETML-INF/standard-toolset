@@ -102,7 +102,29 @@ try {
     $shortcut.Save()
 
     Write-Output "Shortcut created on the desktop: $shortcutPath"
+	# npm config ls -l dit que  cache = "D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts\\cache" prefix = "D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts\\bin"
+	# saufe que nous on veux C: donc
+	# j'ai généré ce script avec gemini
+	# Fix npm configuration files
+	Write-Host "Fixing npm config paths..."
+	Get-ChildItem "$scoopdir\persist\nodejs*\bin\etc\npmrc" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+		Write-Host "Fixing $_"
+		$content = Get-Content $_ -Raw
+		# Fix paths like D:\a\standard-toolset\standard-toolset\build\scoop\persist to correct installation path
+		$content = $content -replace 'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist', "$($scoopdir -replace '\\', '\\')\persist"
+		# Also fix any general pattern with drive letter for build paths
+		$content = $content -replace '[A-Z]:\\\\a\\\\.*? \\\\build\\\\scoop\\\\persist', "$($scoopdir -replace '\\', '\\')\persist"
+		Set-Content $_ -Value $content -NoNewline
+	}
 
+	# Also fix the builtin npmrc in the nodejs installation itself
+	Get-ChildItem "$scoopdir\apps\nodejs*\*\node_modules\npm\npmrc" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+		Write-Host "Fixing builtin npmrc:  $_"
+		$content = Get-Content $_ -Raw
+		$content = $content -replace 'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist', "$($scoopdir -replace '\\', '\\')\persist"
+		$content = $content -replace '[A-Z]:\\a\\.*?\\build\\scoop\\persist', "$($scoopdir -replace '\\', '\\')\persist"
+		Set-Content $_ -Value $content -NoNewline
+	}
 }
 catch {
     Write-Error "Something went wrong: $_. "
