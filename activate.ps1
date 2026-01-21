@@ -15,7 +15,7 @@ try {
     $toolsetdir = $Path
     if (-not (Test-Path -Path $toolsetdir))
     {
-	$toolsetdir = "c:\data\inf-toolset"
+	$toolsetdir = "d:\data\inf-toolset"
 	if (-not (Test-Path -Path $toolsetdir))
 	{
 	    Write-Output "Toolset not found in given/standard locations"
