@@ -114,102 +114,31 @@ jobs:
             exit 0
           }
 
-          # Compare versions to find changed apps
-          Write-Host "Analyzing package changes..."
-          $prevContent = Get-Content previous-versions.txt | Out-String
-          $currContent = Get-Content versions.txt | Out-String
+          # Generate delta using external module (refactored for testability)
+          try {
+            $result = & .\lib\Generate-DeltaPackage.ps1 `
+              -BuildPath "build" `
+              -CurrentTag $currentTag `
+              -PreviousTag $previousTag `
+              -PreviousVersionsFile "previous-versions.txt"
 
-          # Parse scoop list output (Name Version columns)
-          $prevApps = @{}
-          $prevContent -split "`n" | ForEach-Object {
-            if ($_ -match '^\s*(\S+)\s+(\S+)\s*$') {
-              $prevApps[$matches[1]] = $matches[2]
-            }
-          }
-
-          $changedApps = @()
-          $currContent -split "`n" | ForEach-Object {
-            if ($_ -match '^\s*(\S+)\s+(\S+)\s*$') {
-              $name = $matches[1]
-              $version = $matches[2]
-
-              if (-not $prevApps.ContainsKey($name)) {
-                Write-Host "  + New: $name $version" -ForegroundColor Green
-                $changedApps += $name
-              } elseif ($prevApps[$name] -ne $version) {
-                Write-Host "  ↑ Updated: $name ($($prevApps[$name]) -> $version)" -ForegroundColor Yellow
-                $changedApps += $name
+            if ($result.Created) {
+              echo "created=true" >> $env:GITHUB_OUTPUT
+              Write-Host ""
+              Write-Host "Delta generation summary:" -ForegroundColor Cyan
+              Write-Host "  Changed apps: $($result.ChangedApps -join ', ')" -ForegroundColor Gray
+              if ($result.RemovedApps.Count -gt 0) {
+                Write-Host "  Removed apps: $($result.RemovedApps -join ', ')" -ForegroundColor Gray
               }
+            } else {
+              echo "created=false" >> $env:GITHUB_OUTPUT
+              Write-Host "Delta not created: $($result.Reason)"
             }
-          }
-
-          if ($changedApps.Count -eq 0) {
-            Write-Host "No application changes detected, skipping delta generation"
+          } catch {
+            Write-Warning "Failed to generate delta package: $_"
             echo "created=false" >> $env:GITHUB_OUTPUT
             exit 0
           }
-
-          Write-Host ""
-          Write-Host "Creating delta package with $($changedApps.Count) changed app(s)..."
-
-          # Create delta directory structure
-          New-Item -ItemType Directory -Path delta/scoop/apps -Force | Out-Null
-
-          # Copy ONLY changed apps from the already-built installation (in build/ directory)
-          foreach ($appName in $changedApps) {
-            $appPath = "build/scoop/apps/$appName"
-            if (Test-Path $appPath) {
-              Write-Host "  Copying $appName..." -ForegroundColor Gray
-              Copy-Item -Recurse -Force $appPath delta/scoop/apps/
-            } else {
-              Write-Warning "  App path not found: $appPath"
-            }
-          }
-
-          # Copy necessary scoop infrastructure (shims for new apps)
-          Write-Host "Copying scoop shims..."
-          if (Test-Path "build/scoop/shims") {
-            Copy-Item -Recurse -Force build/scoop/shims delta/scoop/
-          }
-
-          # Copy metadata and scripts
-          Copy-Item build/VERSION.txt delta/ -ErrorAction SilentlyContinue
-          Copy-Item build/versions.txt delta/ -ErrorAction SilentlyContinue
-          Copy-Item build/install.ps1 delta/ -ErrorAction SilentlyContinue
-          Copy-Item build/activate.ps1 delta/ -ErrorAction SilentlyContinue
-          Copy-Item build/README.md delta/ -ErrorAction SilentlyContinue
-          Copy-Item build/LICENSE delta/ -ErrorAction SilentlyContinue
-
-          # Create delta manifest
-          $manifest = @{
-            from_version = $previousTag
-            to_version = $currentTag
-            changed_apps = $changedApps
-            app_count = $changedApps.Count
-            type = "delta"
-            generated_at = (Get-Date -Format "o")
-          }
-          $manifest | ConvertTo-Json | Out-File delta/DELTA-MANIFEST.json -Encoding utf8
-
-          # Compress delta
-          $deltaFileName = "delta-from-$previousTag.zip"
-          Write-Host "Compressing delta archive: $deltaFileName"
-          Compress-Archive delta/* $deltaFileName -Force
-
-          # Calculate and display savings
-          if (Test-Path toolset.zip) {
-            $deltaSize = (Get-Item $deltaFileName).Length / 1MB
-            $fullSize = (Get-Item toolset.zip).Length / 1MB
-            $savings = [math]::Round(($fullSize - $deltaSize) / $fullSize * 100, 1)
-
-            Write-Host ""
-            Write-Host "  Delta package created successfully!" -ForegroundColor Green
-            Write-Host "  Delta size: $([math]::Round($deltaSize, 1)) MB" -ForegroundColor Cyan
-            Write-Host "  Full size: $([math]::Round($fullSize, 1)) MB" -ForegroundColor Cyan
-            Write-Host "  Bandwidth savings: $savings%" -ForegroundColor Green
-          }
-
-          echo "created=true" >> $env:GITHUB_OUTPUT
 
       - name: Upload archive
         if: ${{steps.release.outputs.release_created}}

@@ -1,0 +1,227 @@
+name: Delta Update Tests
+
+on:
+  push:
+    branches:
+      - main
+      - feat/delta-updates
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test-delta-mechanism:
+    runs-on: windows-latest
+    name: Integration Tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell
+        shell: pwsh
+        run: |
+          Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
+          Write-Host "OS: $($PSVersionTable.OS)"
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Write-Host "Installing Pester..." -ForegroundColor Cyan
+          Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Import-Module Pester
+          $pesterVersion = (Get-Module Pester).Version
+          Write-Host "Pester version: $pesterVersion" -ForegroundColor Green
+
+      - name: Run Integration Tests
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "  DELTA UPDATE INTEGRATION TESTS" -ForegroundColor White
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host ""
+
+          # Run tests with results output
+          & .\tests\Run-Tests.ps1 -Verbosity Detailed -GenerateResults
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          retention-days: 30
+
+      - name: Publish Test Results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        with:
+          files: test-results.xml
+          check_name: Delta Update Test Results
+
+  test-library-modules:
+    runs-on: windows-latest
+    name: Library Module Tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Test Compare-Versions Module
+        shell: pwsh
+        run: |
+          Write-Host "Testing Compare-Versions.ps1..." -ForegroundColor Cyan
+
+          # Create test files
+          @"
+          Name Version
+          ---- -------
+          git 2.40.0
+          node 18.0.0
+          "@ | Out-File "test-prev.txt"
+
+          @"
+          Name Version
+          ---- -------
+          git 2.40.0
+          node 20.0.0
+          "@ | Out-File "test-curr.txt"
+
+          # Run comparison
+          $result = & .\lib\Compare-Versions.ps1 `
+            -PreviousVersionsFile "test-prev.txt" `
+            -CurrentVersionsFile "test-curr.txt"
+
+          # Validate
+          if ($result.UpdatedApps.Count -ne 1) {
+            throw "Expected 1 updated app, got $($result.UpdatedApps.Count)"
+          }
+
+          if ($result.UpdatedApps[0].Name -ne "node") {
+            throw "Expected node to be updated"
+          }
+
+          Write-Host "Compare-Versions.ps1 working correctly" -ForegroundColor Green
+
+          # Cleanup
+          Remove-Item "test-prev.txt", "test-curr.txt"
+
+      - name: Test Get-GitHubRelease Module (Mock Mode)
+        shell: pwsh
+        run: |
+          Write-Host "Testing Get-GitHubRelease.ps1 with mocking..." -ForegroundColor Cyan
+
+          # Create mock release structure
+          $mockPath = "$env:TEMP\mock-release-test"
+          New-Item -ItemType Directory "$mockPath\v1.9.0" -Force | Out-Null
+
+          # Create mock release.json
+          @{
+            tag_name = "v1.9.0"
+            name = "Test Release"
+            assets = @(@{name = "test.txt"; browser_download_url = "file://test"})
+          } | ConvertTo-Json | Out-File "$mockPath\v1.9.0\release.json"
+
+          # Test with mock
+          $env:GITHUB_MOCK_PATH = $mockPath
+          $release = & .\lib\Get-GitHubRelease.ps1 `
+            -Repo "test/repo" `
+            -Tag "v1.9.0"
+
+          if ($release.tag_name -ne "v1.9.0") {
+            throw "Expected tag_name v1.9.0, got $($release.tag_name)"
+          }
+
+          Write-Host "Get-GitHubRelease.ps1 mocking working correctly" -ForegroundColor Green
+
+          # Cleanup
+          Remove-Item $mockPath -Recurse -Force
+          Remove-Item env:GITHUB_MOCK_PATH
+
+      - name: Test Generate-DeltaPackage Module
+        shell: pwsh
+        run: |
+          Write-Host "Testing Generate-DeltaPackage.ps1..." -ForegroundColor Cyan
+
+          # Create mock build directory
+          $buildPath = "$env:TEMP\test-build"
+          New-Item -ItemType Directory "$buildPath\scoop\apps\node\20.0.0" -Force | Out-Null
+          New-Item -ItemType Directory "$buildPath\scoop\shims" -Force | Out-Null
+
+          # Create versions
+          @"
+          Name Version
+          ---- -------
+          node 20.0.0
+          "@ | Out-File "$buildPath\versions.txt"
+
+          @"
+          Name Version
+          ---- -------
+          node 18.0.0
+          "@ | Out-File "$env:TEMP\prev-versions.txt"
+
+          "v1.9.1" | Out-File "$buildPath\VERSION.txt"
+
+          # Run delta generation
+          $result = & .\lib\Generate-DeltaPackage.ps1 `
+            -BuildPath $buildPath `
+            -CurrentTag "v1.9.1" `
+            -PreviousTag "v1.9.0" `
+            -PreviousVersionsFile "$env:TEMP\prev-versions.txt" `
+            -OutputPath "$env:TEMP\test-delta"
+
+          if (-not $result.Created) {
+            throw "Delta should have been created"
+          }
+
+          if ($result.ChangedApps -notcontains "node") {
+            throw "Expected node in changed apps"
+          }
+
+          Write-Host "Generate-DeltaPackage.ps1 working correctly" -ForegroundColor Green
+
+          # Cleanup
+          Remove-Item $buildPath -Recurse -Force
+          Remove-Item "$env:TEMP\prev-versions.txt"
+          Remove-Item "$env:TEMP\test-delta" -Recurse -Force -ErrorAction SilentlyContinue
+
+  lint-powershell:
+    runs-on: windows-latest
+    name: PowerShell Script Analyzer
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer on lib modules
+        shell: pwsh
+        run: |
+          Write-Host "Running PSScriptAnalyzer on lib/*.ps1..." -ForegroundColor Cyan
+
+          $results = Invoke-ScriptAnalyzer -Path "lib" -Recurse -Settings PSScriptAnalyzerSettings.psd1
+
+          if ($results) {
+            $results | Format-Table -AutoSize
+            $errorCount = ($results | Where-Object { $_.Severity -eq 'Error' }).Count
+            $warningCount = ($results | Where-Object { $_.Severity -eq 'Warning' }).Count
+
+            Write-Host ""
+            Write-Host "Errors: $errorCount" -ForegroundColor $(if ($errorCount -gt 0) { "Red" } else { "Green" })
+            Write-Host "Warnings: $warningCount" -ForegroundColor Yellow
+
+            if ($errorCount -gt 0) {
+              throw "PSScriptAnalyzer found $errorCount error(s)"
+            }
+          } else {
+            Write-Host "No issues found" -ForegroundColor Green
+          }
