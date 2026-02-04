@@ -74,7 +74,11 @@
   {
 	 "name":"python3",
 	 "tags":"devops"
+  },
+  {
+    "//comment":"from hashicorp",
+    "name":"packer",
+	  "tags":"devops"
   }
-  
 ]
 

@@ -15,6 +15,8 @@ try {
 
     Write-Output "Installing scoop"
     $install_file = "iscoop.ps1"
+
+    #installation de scoop, renommage du file et suppresion du fichier d'installation apres cout
     Invoke-RestMethod get.scoop.sh -outfile "$($pwd)\$install_file"
     & ".\$install_file" -ScoopDir "$($pwd.Path)\build\scoop"
     Remove-Item $install_file
