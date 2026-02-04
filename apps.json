@@ -79,6 +79,16 @@
     "//comment":"from hashicorp",
     "name":"packer",
 	  "tags":"devops"
+  },
+  {
+    "name":"packer",
+    "bucket": "extras",
+	  "tags":"system"
+  },
+  {
+    "name": "winmerge",
+    "bucket": "extras",
+    "tags": "dev"
   }
 ]
 
