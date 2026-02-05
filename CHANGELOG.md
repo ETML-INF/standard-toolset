@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.11.0](https://github.com/philippe-hjik/standard-toolset/compare/v1.10.0...v1.11.0) (2026-02-05)
+
+
+### Features
+
+* **apps.json:** add a new app ([b6b88a5](https://github.com/philippe-hjik/standard-toolset/commit/b6b88a5768da21cf59b7f3d75de710c0bbdc6558))
+* **apps.json:** add new apps ([8534140](https://github.com/philippe-hjik/standard-toolset/commit/853414033588eb8b63516685b9ad0a6ce96ce7c2))
+* **apps:** add laragon ([5939f19](https://github.com/philippe-hjik/standard-toolset/commit/5939f19fe8b42093468efdacbc56240317f7c8c8))
+* **apps:** add python3 asked by MMN (devops cicd) ([e1e1e30](https://github.com/philippe-hjik/standard-toolset/commit/e1e1e30481d14d668a308c97889c366a35e60994))
+
+
+### Bug Fixes
+
+* **apps.json:** add new app ([508b282](https://github.com/philippe-hjik/standard-toolset/commit/508b282c2a7646a6c7fdf3e19c0ce60c63511f8b))
+* **readme:** ajout du backslash manquant après la lettre de lecteur ([5fe2796](https://github.com/philippe-hjik/standard-toolset/commit/5fe2796676725208a2aaab3f44bcc20748eda256))
+
 ## [1.10.0](https://github.com/ETML-INF/standard-toolset/compare/v1.9.0...v1.10.0) (2025-12-03)
 
 
