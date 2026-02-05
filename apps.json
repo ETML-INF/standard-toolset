@@ -81,7 +81,7 @@
 	  "tags":"devops"
   },
   {
-    "name":"packer",
+    "name":"spacesniffer",
     "bucket": "extras",
 	  "tags":"system"
   },
