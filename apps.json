@@ -89,6 +89,11 @@
     "name": "winmerge",
     "bucket": "extras",
     "tags": "dev"
+  },
+  {
+    "name": "mqttx",
+    "bucket": "extras",
+    "tags": "web,dev"
   }
 ]
 
