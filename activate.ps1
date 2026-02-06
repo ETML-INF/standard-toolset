@@ -65,6 +65,10 @@ try {
     & reg import "$vscode\install-context.reg"
     Write-Output "VSCode context menu added/updated"
 
+    # Git configuration (only user config not system config)
+    $PSScriptRoot/gitconfig.ps1 "$env:USERPROFILE\.gitconfig"
+    Write-Output "gitconfig safe directory added/updated"
+
     # Add toolbar for shorcuts
     # Define the path to Scoop shortcuts folder
     $scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
