@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.12.0](https://github.com/philippe-hjik/standard-toolset/compare/v1.11.1...v1.12.0) (2026-02-06)
+
+
+### Features
+
+* **activate:** add gitconfig script for user ([597bf77](https://github.com/philippe-hjik/standard-toolset/commit/597bf7702d5223a7626d093b2cf12d324339db6d))
+* **activate:** install nodejs-lts in activate.ps1 ([3245601](https://github.com/philippe-hjik/standard-toolset/commit/3245601e8455a7225a9d053c6c05dc33f4fb3efc))
+* **apps:** add mqttx ([8f57789](https://github.com/philippe-hjik/standard-toolset/commit/8f57789949e3aa9577f2a349779222279c9725c9))
+
 ## [1.11.1](https://github.com/philippe-hjik/standard-toolset/compare/v1.11.0...v1.11.1) (2026-02-05)
 
 
