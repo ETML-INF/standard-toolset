@@ -69,6 +69,10 @@ try {
     $PSScriptRoot/gitconfig.ps1 "$env:USERPROFILE\.gitconfig"
     Write-Output "gitconfig safe directory added/updated"
 
+    # Git configuration (only user config not system config)
+    Write-Host "Installing nodejs-lts" -ForegroundColor Green
+    scoop install nodejs-lts
+
     # Add toolbar for shorcuts
     # Define the path to Scoop shortcuts folder
     $scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
