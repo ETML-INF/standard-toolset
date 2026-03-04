@@ -45,8 +45,15 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 - Télécharger l'archive depuis le serveur nas
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-& ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://github.com/philippe-hjik/standard-toolset/raw/main/setup.ps1))) -Source "L:\toolset\vX.X.X.zip"
+& ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://raw.githubusercontent.com/philippe-hjik/standard-toolset/feat/modular/setup.ps1))) -Source "L:\toolset\"
 ```
+
+- Télécharger l'archive depuis le serveur nas
+```pwsh
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+& ([ScriptBlock]::Create((Invoke-RestMethod -Uri https://raw.githubusercontent.com/philippe-hjik/standard-toolset/raw/main/setup.ps1))) -Source "L:\toolset\"
+```
+
 
 
 ## **Activation**
