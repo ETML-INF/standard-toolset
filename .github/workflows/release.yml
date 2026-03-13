@@ -29,7 +29,7 @@ jobs:
         run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
 
       - name: Restore Scoop cache
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         uses: actions/cache/restore@v4
         with:
                 path: build\scoop\cache
@@ -39,7 +39,7 @@ jobs:
 
       # WARNING: scoop is added to the path only in that step
       - name: Build apps (local install)
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         shell: pwsh
         run: |
              & .\build.ps1 apps.json
@@ -47,11 +47,11 @@ jobs:
       # WARNING: use full path to scoop as PATH var has died in last step 
       # Generate hash from installed packages
       - name: Generate cache hash
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         id: cache-hash
         shell: pwsh
         run: |
-             build\scoop\shims\scoop list | Select-Object Name, Version > hash.txt 2>$null
+             .\build\scoop\shims\scoop list | Select-Object Name, Version > hash.txt 2>$null
              Get-Content hash.txt 
              $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
              echo "hash=$hash" >> $env:GITHUB_OUTPUT
@@ -59,26 +59,28 @@ jobs:
              
       # Save cache with new hash
       - name: Save Scoop cache
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         uses: actions/cache/save@v4
         with:
                 path: build\scoop\cache
                 key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
 
       - name: Add install scripts,readme,licence and version to build
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         shell: pwsh
         run: |
-             cp install.ps1 build
-             cp activate.ps1 build
-             cp README.md build
-             cp LICENSE build
-             echo ${{steps.release.outputs.tag_name}} > build/VERSION.txt
+            cp install.ps1 build
+            cp activate.ps1 build
+            cp README.md build
+            cp LICENSE build
+            $tag = '${{ steps.release.outputs.tag_name }}'
+            if ([string]::IsNullOrEmpty($tag)) { $tag = 'v0.0.0-local' }
+            $tag | Out-File -FilePath build/VERSION.txt -Encoding utf8
 
       # WARNING: use full path to scoop as PATH var has died in previous step
       # .git is renamed because of Compress-Archive builtin exclusion of .git and to avoid external dep on tar.exe or other...
       - name: Compress archive (cleaning cache and moving .git to .git-force)
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         shell: pwsh
         run: |
              build\scoop\shims\scoop cache rm *
@@ -86,20 +88,28 @@ jobs:
              Compress-Archive -Path (Get-ChildItem build -Exclude scoop) -DestinationPath toolset.zip
 
       - name: Create asset release
-        if: steps.release.outputs.release_created
+        if: steps.release.outputs.release_created || true 
         shell: pwsh
         run: |
              New-Item -ItemType Directory -Path "apps" -Force
-             Get-ChildItem -Path "build\scoop\app" | ForEach-Object {
-              Compress-Archive -Path $_.FullName -DestinationPath "apps\($_.Name).zip" -Force
+             Get-ChildItem -Path "build\scoop\apps" | ForEach-Object {
+              Compress-Archive -Path $_.FullName -DestinationPath "apps\$($_.Name).zip" -Force
              }
 
-      - name: Upload archive
-        if: ${{steps.release.outputs.release_created}}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy artifacts locally
+        if: steps.release.outputs.release_created || true
+        shell: pwsh
         run: |
-          gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
-          gh release upload ${{ steps.release.outputs.tag_name }} versions.txt
-          gh release upload ${{ steps.release.outputs.tag_name }} apps/*.zip
+             Copy-Item toolset.zip C:\act-output\
+             Copy-Item versions.txt C:\act-output\
+             Copy-Item apps\*.zip C:\act-output\
+
+#      - name: Upload archive
+#        if: ${{steps.release.outputs.release_created || true }}
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#            gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
+#            gh release upload ${{ steps.release.outputs.tag_name }} versions.txt
+#            gh release upload ${{ steps.release.outputs.tag_name }} apps/*.zip
           

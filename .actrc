@@ -1,0 +1,4 @@
+-P windows-latest=mcr.microsoft.com/windows/servercore:ltsc2019
+--no-cache-server
+--container-daemon-socket //./pipe/docker_engine
+--container-options -v C:\Users\pf25xeu\Documents\GitHub\standard-toolset:C:\workspace
