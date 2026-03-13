@@ -81,10 +81,12 @@ try {
     # NodeJS installation
     Write-Host "Fixing nodejs-lts" -ForegroundColor Green
 
-    $old = 'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts'
-    $new = 'C:\inf-toolset\scoop\apps\nodejs-lts\24.11.1\'
+    $version = (Get-Content "$scoopDir\apps\nodejs-lts\current\manifest.json" | ConvertFrom-Json).version
 
-    Get-ChildItem -Path "C:\inf-toolset\scoop\apps\nodejs-lts\24.11.1\node_modules\npm\*" -Recurse -File |
+    $old = 'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts'
+    $new = "C:\inf-toolset\scoop\apps\nodejs-lts\$version\"
+
+    Get-ChildItem -Path "C:\inf-toolset\scoop\apps\nodejs-lts\$version\node_modules\npm\*" -Recurse -File |
     ForEach-Object {
         (Get-Content $_.FullName) -replace $old, $new |
         Set-Content $_.FullName
