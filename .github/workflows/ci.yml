@@ -14,16 +14,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GitHub Actions Windows runners default to Linux containers mode.
+      # Switch to Windows containers before any Docker operation.
+      - name: Switch to Windows containers
+        shell: pwsh
+        run: & "$env:ProgramFiles\Docker\Docker\DockerCli.exe" -SwitchDaemon
+
+      # Use ltsc2022 on CI (nanoserver-1909 is EOL and may be unavailable).
+      # The local default stays 1909 for compatibility with older dev machines.
       - name: Run toolkit tests
         shell: pwsh
-        run: pwsh tests/Run-ContainerTests.ps1
+        run: pwsh tests/Run-ContainerTests.ps1 -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022
 
   build-tests:
     name: Build pipeline tests
     runs-on: windows-2022
+    # Requires the build-base image to exist in GHCR.
+    # If this job fails with "manifest unknown", run the
+    # "Build base test image" workflow manually first (Actions → workflow_dispatch).
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Switch to Windows containers
+        shell: pwsh
+        run: & "$env:ProgramFiles\Docker\Docker\DockerCli.exe" -SwitchDaemon
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -33,4 +48,4 @@ jobs:
 
       - name: Run build tests
         shell: pwsh
-        run: pwsh tests/Run-BuildTests.ps1
+        run: pwsh tests/Run-BuildTests.ps1 -BaseImage ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest
