@@ -23,11 +23,16 @@ if ([string]::IsNullOrEmpty($path) -or [string]::IsNullOrEmpty($toolsetdir)) {
 
 $add = "`tdirectory = $($toolsetdir -replace '\\', '/')/*"
 
-# @() guarantees an array even for single-line files
-$content = @(Get-Content $path)
+# @() guarantees an array even for single-line files; guard against missing file
+$content = if (Test-Path $path) { @(Get-Content $path) } else { @() }
 
 $safeIndex = ($content | Select-String "^\[safe\]$" | Select-Object -First 1).LineNumber - 1
-$dirIndex  = ($content | Select-String "^\s*directory\s*=" | Select-Object -First 1).LineNumber - 1
+# Scope directory search to lines after [safe] to avoid matching other sections
+$dirIndex = if ($safeIndex -ge 0) {
+    $afterSafe = $content[($safeIndex+1)..($content.Length-1)]
+    $hit = $afterSafe | Select-String "^\s*directory\s*=" | Select-Object -First 1
+    if ($hit) { $safeIndex + $hit.LineNumber } else { -1 }
+} else { -1 }
 
 if ($safeIndex -ge 0) {
     if ($dirIndex -ge 0) {
