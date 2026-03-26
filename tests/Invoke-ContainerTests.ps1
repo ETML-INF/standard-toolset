@@ -142,10 +142,9 @@ Write-Host "[11] gitconfig.ps1 — safe.directory patching" -ForegroundColor Cya
 $gc = "C:\toolset-repo\gitconfig.ps1"
 $dir = "C:\tmp\s11-toolset"
 
-# [11a] No existing .gitconfig → [safe] block created from scratch
+# [11a] No existing .gitconfig file at all → [safe] block created from scratch
 $f = "C:\tmp\s11a.gitconfig"
 Remove-Item $f -Force -ErrorAction SilentlyContinue
-New-Item $f -ItemType File -Force | Out-Null
 & pwsh -File $gc $f $dir *> $null
 $c = Get-Content $f -Raw
 Assert "[11a] [safe] section created"    ($c -match '\[safe\]')
@@ -178,6 +177,15 @@ $dirLines = @($lines | Where-Object { $_ -match 'directory\s*=' })
 Assert "[11d] only one directory line"   ($dirLines.Count -eq 1)
 Assert "[11d] old path replaced"         ($dirLines[0] -notmatch 'old/path')
 Assert "[11d] new path set"              ($dirLines[0] -match [regex]::Escape($dir.Replace('\','/')))
+
+# [11e] Another section has a directory= key — must not be touched; only [safe] section is updated
+$f = "C:\tmp\s11e.gitconfig"
+Set-Content $f "[url `"git@github.com:`"]`n`tinsteadOf = https://github.com/`n[safe]`n`tdirectory = C:/old/path/*" -Encoding UTF8
+& pwsh -File $gc $f $dir *> $null
+$lines11e = Get-Content $f
+$dirLines11e = @($lines11e | Where-Object { $_ -match 'directory\s*=' })
+Assert "[11e] only one directory line (other section untouched)" ($dirLines11e.Count -eq 1)
+Assert "[11e] new path set in [safe]" ($dirLines11e[0] -match [regex]::Escape($dir.Replace('\','/')))
 
 Remove-Item "C:\tmp\s11*.gitconfig" -Force -ErrorAction SilentlyContinue
 
