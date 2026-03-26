@@ -1,0 +1,10 @@
+# Build pipeline test image.
+# Requires the build-base image (scoop + 7zip pre-installed).
+# Build the base first: pwsh tests/Build-BaseImage.ps1
+# Run tests:           pwsh tests/Run-BuildTests.ps1
+ARG BASE_IMAGE=ghcr.io/etml-inf/standard-toolset/build-base:latest
+FROM ${BASE_IMAGE}
+WORKDIR C:/toolset-repo
+# build/ is excluded via .dockerignore — pre-installed scoop survives this COPY
+COPY . .
+ENTRYPOINT ["pwsh", "-File", "tests/Invoke-BuildTests.ps1"]

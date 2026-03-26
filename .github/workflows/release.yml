@@ -38,9 +38,11 @@ jobs:
                               scoop-cache-
 
       # WARNING: scoop is added to the path only in that step
-      - name: Build apps (local install)
+      - name: Build apps and generate packs
         if: steps.release.outputs.release_created
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.tag_name }}
         run: |
              & .\build.ps1 apps.json
 
@@ -65,31 +67,20 @@ jobs:
                 path: build\scoop\cache
                 key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
 
-      - name: Add install scripts,readme,licence and version to build
-        if: steps.release.outputs.release_created
-        shell: pwsh
-        run: |
-             cp install.ps1 build
-             cp activate.ps1 build
-             cp README.md build
-             cp LICENSE build
-             echo ${{steps.release.outputs.tag_name}} > build/VERSION.txt
-
-      # WARNING: use full path to scoop as PATH var has died in previous step
-      # .git is renamed because of Compress-Archive builtin exclusion of .git and to avoid external dep on tar.exe or other...
-      - name: Compress archive (cleaning cache and moving .git to .git-force)
-        if: steps.release.outputs.release_created
-        shell: pwsh
-        run: |
-             build\scoop\shims\scoop cache rm *
-             Get-ChildItem -Path "build" -Recurse -Directory -Force -Filter ".git" | Rename-Item -NewName ".git-force"
-             Compress-Archive build/* toolset.zip
-
-      - name: Upload archive
-        if: ${{steps.release.outputs.release_created}}
+      - name: Upload packs and scripts
+        if: ${{ steps.release.outputs.release_created }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         run: |
-          gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
-          gh release upload ${{ steps.release.outputs.tag_name }} versions.txt
+             $tag = "${{ steps.release.outputs.tag_name }}"
+             gh release upload $tag build\packs\release-manifest.json
+             Get-ChildItem "build\packs\*.zip" | ForEach-Object {
+                 gh release upload $tag $_.FullName
+             }
+             gh release upload $tag toolset.ps1
+             gh release upload $tag setup.ps1
+             # versions.txt is produced by the existing 'Generate cache hash' step
+             # (which does: scoop list > hash.txt; mv hash.txt versions.txt)
+             gh release upload $tag versions.txt
 

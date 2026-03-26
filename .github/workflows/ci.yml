@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  toolkit-tests:
+    name: Toolkit container tests
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run toolkit tests
+        shell: pwsh
+        run: pwsh tests/Run-ContainerTests.ps1
+
+  build-tests:
+    name: Build pipeline tests
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull base image
+        run: docker pull ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest
+
+      - name: Run build tests
+        shell: pwsh
+        run: pwsh tests/Run-BuildTests.ps1

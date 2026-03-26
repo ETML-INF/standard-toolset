@@ -1,33 +1,46 @@
+# gitconfig.ps1 — Ensures the shared toolset directory is trusted by git for all users.
+#
+# Git's safe.directory mechanism blocks operations on repos owned by a different user.
+# Since the toolset is installed under a shared path (e.g. D:\data\inf-toolset), each
+# user account needs a [safe] directory = <toolsetdir>/* entry in their ~/.gitconfig.
+#
+# Usage: gitconfig.ps1 <gitconfig-path> <toolset-directory>
+#   gitconfig-path     Absolute path to the user's .gitconfig file
+#   toolset-directory  Root of the toolset (e.g. D:\data\inf-toolset)
+#
+# Behaviour:
+#   - [safe] missing                → prepend [safe] + directory line
+#   - [safe] present, no directory  → insert directory line after [safe]
+#   - [safe] present, directory set → replace existing directory line
+
 $path = $args[0]
-$search = "[safe]","directory"
-$add = "`tdirectory = C:/inf-toolset/*"
+$toolsetdir = $args[1]
 
-# Lire tout le fichier
-$content = Get-Content $path
-
-$safeIndex = ($content | Select-String "^\[safe\]$").LineNumber - 1
-$dirIndex  = ($content | Select-String "^\s*directory\s*=").LineNumber - 1
-
-# [safe] existe
-if ($safeIndex -ge 0) {
-
-    # directory existe → remplacer
-    if($dirIndex -ge 0)
-    {
-        # Insérer après [safe]
-        $content[$dirIndex] = $add
-    } 
-    # directory n'existe pas → ajouter après [safe]
-    else {
-        # Insérer après [safe]
-        $content = $content[0..$dirIndex] + @($add) + $content[($dirIndex+1)..($content.Length-1)]
-    }
+if ([string]::IsNullOrEmpty($path) -or [string]::IsNullOrEmpty($toolsetdir)) {
+    Write-Error "Usage: gitconfig.ps1 <gitconfig-path> <toolset-directory>"
+    exit 1
 }
-# [safe] n'existe pas
-else {
-    # ajouter [safe] et directory au content
+
+$add = "`tdirectory = $($toolsetdir -replace '\\', '/')/*"
+
+# @() guarantees an array even for single-line files
+$content = @(Get-Content $path)
+
+$safeIndex = ($content | Select-String "^\[safe\]$" | Select-Object -First 1).LineNumber - 1
+$dirIndex  = ($content | Select-String "^\s*directory\s*=" | Select-Object -First 1).LineNumber - 1
+
+if ($safeIndex -ge 0) {
+    if ($dirIndex -ge 0) {
+        # directory line already exists — replace it
+        $content[$dirIndex] = $add
+    } else {
+        # [safe] exists but no directory — insert after [safe]
+        $tail = if (($safeIndex + 1) -le ($content.Length - 1)) { $content[($safeIndex+1)..($content.Length-1)] } else { @() }
+        $content = $content[0..$safeIndex] + @($add) + $tail
+    }
+} else {
+    # No [safe] section at all — prepend one
     $content = @("[safe]", $add) + $content
 }
 
-# réécrire le fichier
-$content | Set-Content $path
+$content | Set-Content $path -Encoding UTF8

@@ -1,0 +1,44 @@
+# Build environment base image — scoop pre-installed at build\scoop.
+#
+# NanoServer containers need two workarounds for scoop:
+#  1. robocopy.exe is absent — a thin xcopy wrapper is written to C:\tools (base64
+#     encoded to avoid Dockerfile quoting issues; C:\Windows\System32 is read-only).
+#  2. The scoop installer exits non-zero when it tries to persist PATH to the User
+#     registry hive (absent in containers). Running the installer as a child process
+#     isolates that exit, and we verify success by checking the shim directory.
+#
+# Rebuild and push when scoop or pre-installed apps need updating:
+#   pwsh tests/Build-BaseImage.ps1 -Push
+ARG BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-1909
+FROM ${BASE_IMAGE}
+
+SHELL ["pwsh", "-Command"]
+
+WORKDIR C:/toolset-repo
+
+ENV SCOOP="C:\\toolset-repo\\build\\scoop"
+
+# Single layer: create robocopy stub → download MinGit → install scoop (child process)
+# → verify shims → add buckets → install test app → clean up.
+RUN Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+    New-Item -ItemType Directory -Force C:\tools | Out-Null; \
+    $env:PATH = 'C:\tools;C:\Program Files\PowerShell;C:\Windows\System32;' + $env:PATH; \
+    [System.IO.File]::WriteAllBytes('C:\tools\robocopy.cmd', [System.Convert]::FromBase64String('QGVjaG8gb2ZmDQppZiAiJX4xIj09IiIgZXhpdCAvYiAwDQppZiAiJX4yIj09IiIgZXhpdCAvYiAwDQp4Y29weSAiJX4xXCoiICIlfjJcIiAvRSAvSSAvWSAvUSAvSCAvUiA+bnVsIDI+JjENCmV4aXQgL2IgMA0K')); \
+    Invoke-WebRequest https://github.com/git-for-windows/git/releases/download/v2.45.2.windows.1/MinGit-2.45.2-64-bit.zip \
+        -OutFile C:\mingit.zip -UseBasicParsing; \
+    Expand-Archive C:\mingit.zip -DestinationPath C:\mingit -Force; \
+    Remove-Item C:\mingit.zip; \
+    $env:PATH = 'C:\mingit\cmd;' + $env:PATH; \
+    Invoke-WebRequest 'https://get.scoop.sh' -OutFile C:\iscoop.ps1 -UseBasicParsing; \
+    pwsh -NonInteractive -NoProfile -File C:\iscoop.ps1; \
+    Remove-Item C:\iscoop.ps1 -Force; \
+    if (-not (Test-Path 'C:\toolset-repo\build\scoop\shims\scoop.cmd')) { throw 'Scoop install failed' }; \
+    $env:PATH = 'C:\toolset-repo\build\scoop\shims;' + $env:PATH; \
+    scoop bucket add main; \
+    scoop bucket add extras; \
+    scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket; \
+    scoop install jq; \
+    scoop cache rm *
+
+ENV PATH="C:\\toolset-repo\\build\\scoop\\shims;C:\\mingit\\cmd;C:\\tools;C:\\Windows\\System32;C:\\Program Files\\PowerShell"

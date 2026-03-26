@@ -29,9 +29,11 @@
   },
   {
     "name":"windows-terminal",
-    "tags":"devops,cmd"
+    "tags":"devops,cmd",
+    "paths2DropToEnableMultiUser":[".portable","settings"]
   },
   {
+    "//comment":"shared bin/config/ConEmu.xml via scoop persist is intentional — all users get the same aliases and profile scripts",
     "name":"cmder-full",
     "tags":"devops,cmd"
   },
@@ -60,11 +62,13 @@
   {
     "//comment":"vscodium could be more ethical but it has less plugins...",
     "name":"vscode",
-    "tags":"dev"
+    "tags":"dev",
+    "paths2DropToEnableMultiUser":["data"]
   },
   {
     "name":"filezilla",
-    "tags":"devops"
+    "tags":"devops",
+    "paths2DropToEnableMultiUser":["data"]
   },
   {
 	 "//comment":"in case of docker issues...",

@@ -1,0 +1,12 @@
+# Exclude local build artifacts from the Docker build context.
+#
+# WHY THIS MATTERS for the build-test image:
+#   The build-base image pre-installs scoop at C:/toolset-repo/build/scoop.
+#   If you have run build.ps1 locally, a build/ folder exists in your workspace.
+#   Without this file, "docker build" would send that folder as part of the build
+#   context, and "COPY . ." in Dockerfile.build-test would overwrite the base
+#   image's pre-installed scoop with your local copy.
+#
+# If you have never run build.ps1 locally, this file has no effect.
+build/
+*.log

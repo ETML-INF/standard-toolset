@@ -1,0 +1,11 @@
+# mcr.microsoft.com/powershell:nanoserver-1909 (build 18363) is used for local dev compatibility.
+# Any Windows host >= 18363 runs this with process isolation (no Hyper-V required).
+# CI runners (Windows Server 2022, build 20348) also satisfy that condition.
+#
+# To build with a newer image (e.g. for CI-only runs on Server 2022):
+#   docker build --build-arg BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-ltsc2022 ...
+ARG BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-1909
+FROM ${BASE_IMAGE}
+WORKDIR C:/toolset-repo
+COPY . .
+ENTRYPOINT ["pwsh", "-File", "tests/Invoke-ContainerTests.ps1"]

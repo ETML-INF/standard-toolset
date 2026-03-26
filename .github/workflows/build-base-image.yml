@@ -1,0 +1,33 @@
+name: Build base test image
+
+on:
+  workflow_dispatch:        # manual trigger — rebuild on demand
+  push:
+    branches: [main]
+    paths:
+      - tests/Dockerfile.build-base   # auto-rebuild when the base definition changes
+
+jobs:
+  build-and-push:
+    runs-on: windows-2022
+
+    permissions:
+      packages: write       # required to push to GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build and push
+        shell: pwsh
+        run: |
+          $image = "ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest"
+          docker build `
+            --network nat `
+            -f tests/Dockerfile.build-base `
+            -t $image `
+            .
+          docker push $image
+          Write-Host "Pushed: $image" -ForegroundColor Green
