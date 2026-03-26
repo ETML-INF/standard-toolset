@@ -209,10 +209,13 @@ try {
     }
 
     $manifest = [ordered]@{
-        version         = $releaseVersion
-        previousVersion = $prevVersion   # enables chain-walking without GitHub API
-        built           = (Get-Date -Format "o")
-        apps            = $manifestApps
+        version             = $releaseVersion
+        previousVersion     = $prevVersion   # enables chain-walking without GitHub API
+        built               = (Get-Date -Format "o")
+        # Absolute path of scoop\persist at build time — used by toolset.ps1 to fix
+        # embedded paths in nodejs-lts npm modules without hardcoding the CI workspace.
+        buildScoopPersistDir = "$buildScoopDir\persist"
+        apps                = $manifestApps
     }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content "$packsDir\release-manifest.json" -Encoding UTF8
 

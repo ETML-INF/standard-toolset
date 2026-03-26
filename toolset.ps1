@@ -98,6 +98,7 @@ function Invoke-Activate {
     # Deleting the junction leaves persist data intact but forces apps to use per-user dirs.
     Write-Host "Configuring per-user app settings..." -ForegroundColor Green
     $dropped = 0
+    $mf = $null
     $localManifest = Join-Path $toolsetdir "release-manifest.json"
     if (Test-Path $localManifest -ErrorAction SilentlyContinue) {
         $mf = Get-Content $localManifest -Raw | ConvertFrom-Json
@@ -169,15 +170,41 @@ function Invoke-Activate {
     Invoke-NodeCheck -toolsetdir $toolsetdir -NoInteraction $NoInteraction
 
     # Fix nodejs-lts npm paths
+    # During CI build, npm embeds the CI persist path (D:\a\...\build\scoop\persist\nodejs-lts)
+    # into text config/script files. We replace that CI path with the user's actual persist dir.
+    # Scans all text-like files in the versioned dir + persist dir (skips binaries by extension).
+    # (See also: ETML-INF/standard-toolset PR #21 which identified this issue in the old arch.)
     if (Test-Path "$scoopdir\apps\nodejs-lts\current\manifest.json") {
         Write-Host "Fixing nodejs-lts paths..." -ForegroundColor Green
         $version = (Get-Content "$scoopdir\apps\nodejs-lts\current\manifest.json" | ConvertFrom-Json).version
-        $old = 'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts'
-        $new = "$toolsetdir\scoop\apps\nodejs-lts\$version\"
-        Get-ChildItem "$toolsetdir\scoop\apps\nodejs-lts\$version\node_modules\npm\*" -Recurse -File |
-            ForEach-Object {
-                (Get-Content $_.FullName) -replace $old, $new | Set-Content $_.FullName
-            }
+        # Read the CI build persist path from the release manifest so we don't hardcode
+        # the GitHub Actions workspace directory (D:\a\<repo>\<repo>\build\scoop\persist).
+        # Escape backslashes for PowerShell -replace (which uses regex), then append \nodejs-lts.
+        $oldPattern = if ($mf -and $mf.PSObject.Properties['buildScoopPersistDir']) {
+            ($mf.buildScoopPersistDir -replace '\\', '\\\\') + '\\nodejs-lts'
+        } else {
+            'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts'
+        }
+        $newPersist = "$scoopdir\persist\nodejs-lts"  # where npm cache/prefix live at runtime
+
+        # Text-like extensions that may embed absolute paths — skip binaries for speed and safety
+        $textExts = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
+
+        $scanRoots = @(
+            "$scoopdir\apps\nodejs-lts\$version",  # full versioned install (node_modules etc.)
+            "$scoopdir\persist\nodejs-lts"          # persist dir (npmrc cache/prefix settings)
+        )
+        foreach ($root in $scanRoots) {
+            if (-not (Test-Path $root)) { continue }
+            Get-ChildItem $root -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $textExts -contains $_.Extension.ToLower() } |
+                ForEach-Object {
+                    $c = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+                    if ($c -and $c -match $oldPattern) {
+                        $c -replace $oldPattern, $newPersist | Set-Content $_.FullName -NoNewline
+                    }
+                }
+        }
     }
 
     # Desktop shortcut

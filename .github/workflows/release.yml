@@ -51,8 +51,13 @@ jobs:
         id: cache-hash
         shell: pwsh
         run: |
-             build\scoop\shims\scoop list | Select-Object Name, Version > hash.txt 2>$null
-             Get-Content hash.txt 
+             # Stable format: explicit Name=Version strings, sorted — immune to scoop output column changes.
+             build\scoop\shims\scoop list |
+                 Where-Object { $_ -is [PSCustomObject] } |
+                 Sort-Object Name |
+                 ForEach-Object { "$($_.Name)=$($_.Version)" } |
+                 Set-Content hash.txt
+             Get-Content hash.txt
              $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
              echo "hash=$hash" >> $env:GITHUB_OUTPUT
              mv hash.txt versions.txt
@@ -72,13 +77,13 @@ jobs:
         shell: pwsh
         run: |
              $tag = "${{ steps.release.outputs.tag_name }}"
-             gh release upload $tag build\packs\release-manifest.json
+             gh release upload $tag build\packs\release-manifest.json --clobber
              Get-ChildItem "build\packs\*.zip" | ForEach-Object {
-                 gh release upload $tag $_.FullName
+                 gh release upload $tag $_.FullName --clobber
              }
-             gh release upload $tag toolset.ps1
-             gh release upload $tag setup.ps1
+             gh release upload $tag toolset.ps1 --clobber
+             gh release upload $tag setup.ps1 --clobber
              # versions.txt is produced by the existing 'Generate cache hash' step
              # (which does: scoop list > hash.txt; mv hash.txt versions.txt)
-             gh release upload $tag versions.txt
+             gh release upload $tag versions.txt --clobber
 
