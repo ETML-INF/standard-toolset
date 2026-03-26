@@ -180,12 +180,13 @@ Assert "[11d] new path set"              ($dirLines[0] -match [regex]::Escape($d
 
 # [11e] Another section has a directory= key — must not be touched; only [safe] section is updated
 $f = "C:\tmp\s11e.gitconfig"
-Set-Content $f "[url `"git@github.com:`"]`n`tinsteadOf = https://github.com/`n[safe]`n`tdirectory = C:/old/path/*" -Encoding UTF8
+Set-Content $f "[url `"git@github.com:`"]`n`tdirectory = some/repo/path`n[safe]`n`tdirectory = C:/old/path/*" -Encoding UTF8
 & pwsh -File $gc $f $dir *> $null
 $lines11e = Get-Content $f
-$dirLines11e = @($lines11e | Where-Object { $_ -match 'directory\s*=' })
-Assert "[11e] only one directory line (other section untouched)" ($dirLines11e.Count -eq 1)
-Assert "[11e] new path set in [safe]" ($dirLines11e[0] -match [regex]::Escape($dir.Replace('\','/')))
+$urlDirLines11e  = @($lines11e | Where-Object { $_ -match '^\s*directory\s*=\s*some/repo/path' })
+$safeDirLines11e = @($lines11e | Where-Object { $_ -match [regex]::Escape($dir.Replace('\','/')) })
+Assert "[11e] [url] directory line untouched"  ($urlDirLines11e.Count -eq 1)
+Assert "[11e] [safe] directory updated"        ($safeDirLines11e.Count -eq 1)
 
 Remove-Item "C:\tmp\s11*.gitconfig" -Force -ErrorAction SilentlyContinue
 
