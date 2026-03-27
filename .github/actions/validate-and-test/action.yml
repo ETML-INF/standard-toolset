@@ -1,0 +1,13 @@
+name: Validate and Test
+description: Validates apps.json syntax and runs the update-mode test suite (no Windows containers required).
+
+runs:
+  using: composite
+  steps:
+    - name: Validate apps.json
+      shell: pwsh
+      run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
+
+    - name: Run update mode tests
+      shell: pwsh
+      run: pwsh tests/Test-UpdateMode.ps1

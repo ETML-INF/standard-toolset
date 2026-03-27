@@ -22,9 +22,7 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Validates apps.json
-        shell: pwsh
-        run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
+      - uses: ./.github/actions/validate-and-test
 
       - name: Restore Scoop cache
         if: steps.release.outputs.release_created
