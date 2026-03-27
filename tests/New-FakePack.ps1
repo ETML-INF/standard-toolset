@@ -41,7 +41,14 @@ foreach ($app in $Apps) {
         ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
     try { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
-    $manifestApps += [ordered]@{ name = $name; version = $version; pack = $packName }
+    # Read integrity metadata from the freshly-created zip
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zr = [System.IO.Compression.ZipFile]::OpenRead($packPath)
+    try {
+        $fileCount = $zr.Entries.Count
+        $totalSize = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum
+    } finally { $zr.Dispose() }
+    $manifestApps += [ordered]@{ name = $name; version = $version; pack = $packName; fileCount = $fileCount; totalSize = $totalSize }
 }
 
 @{
