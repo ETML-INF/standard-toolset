@@ -400,7 +400,7 @@ function Get-Pack {
                 $parts = $check.Split(':')
                 $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
                 if ($NoInteraction) {
-                    $zipNote = if (Test-Path $local) { "Using zip." } else { "No zip found in PackSource — install will fail." }
+                    $zipNote = if (Test-Path $local) { "Using zip." } else { "No zip found in PackSource — this app will be skipped." }
                     Write-Warning "$msg $zipNote"
                 } else {
                     $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
