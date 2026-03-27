@@ -351,6 +351,19 @@ Assert "[20] .git/HEAD present"        (Test-Path "$d20\scoop\apps\app1\current\
 Assert "[20] no .git-force residue"    (-not (Test-Path "$d20\scoop\apps\app1\current\.git-force"))
 Remove-TestDir $d20, $ps20
 
+Write-Host "[21] Activation — missing scoop.ps1 emits warning, exits 0" -ForegroundColor Cyan
+$d21 = "C:\tmp\s21d"; $sd21 = "$d21\scoop"
+# Deliberately omit scoop.ps1 — no apps\scoop\current\bin\scoop.ps1
+New-Item -Force -ItemType Directory "$sd21\shims" | Out-Null
+Set-Content "$sd21\shims\scoop"     "$sd21\shims\scoop"     -Encoding UTF8
+Set-Content "$sd21\shims\scoop.cmd" "$sd21\shims\scoop.cmd" -Encoding UTF8
+Set-Content "$sd21\shims\scoop.ps1" "$sd21\shims\scoop.ps1" -Encoding UTF8
+$out21 = pwsh -File $toolkit -Path $d21 -NoInteraction 2>&1
+$ec21  = $LASTEXITCODE
+Assert "[21] exit 0 despite missing scoop.ps1" ($ec21 -eq 0)
+Assert "[21] warning emitted"                  ($out21 -match "scoop.ps1 not found")
+Remove-TestDir $d21
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) { exit 1 }

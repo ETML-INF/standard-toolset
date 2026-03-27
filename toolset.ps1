@@ -117,8 +117,13 @@ function Invoke-Activate {
         }
     }
 
-    Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
-    & $scoopdir\apps\scoop\current\bin\scoop.ps1 reset *
+    $scoopPs1 = "$scoopdir\apps\scoop\current\bin\scoop.ps1"
+    if (Test-Path $scoopPs1) {
+        Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
+        & $scoopPs1 reset *
+    } else {
+        Write-Warning "scoop.ps1 not found at $scoopPs1 — skipping junction reset (will complete on next activation)"
+    }
 
     # Drop paths2DropToEnableMultiUser from each app's current\ dir so apps fall back to
     # per-user %APPDATA% instead of the shared portable-mode location.
