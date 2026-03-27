@@ -448,6 +448,34 @@ function Get-Pack {
     }
 }
 
+function Test-AppIntegrity {
+    param([object]$App, [string]$toolsetdir)
+    # Graceful degradation: old manifests without metadata are treated as healthy
+    if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) { return $true }
+    # Check versioned dir first (real scoop layout), fall back to current\ (test/legacy layout)
+    $versionDir = "$toolsetdir\scoop\apps\$($App.name)\$($App.version)"
+    if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
+        $versionDir = "$toolsetdir\scoop\apps\$($App.name)\current"
+    }
+    if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) { return $false }
+    $files = @(Get-ChildItem $versionDir -Recurse -File -Force -ErrorAction SilentlyContinue)
+    if ($files.Count -ne [int]$App.fileCount) { return $false }
+    $size = ($files | Measure-Object -Property Length -Sum).Sum
+    return $size -eq [long]$App.totalSize
+}
+
+function Remove-StaleVersionDirs {
+    param([string]$toolsetdir, [string]$AppName, [string]$KeepVersion)
+    $appDir = "$toolsetdir\scoop\apps\$AppName"
+    if (-not (Test-Path $appDir -ErrorAction SilentlyContinue)) { return }
+    Get-ChildItem $appDir -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne $KeepVersion -and $_.Name -ne 'current' } |
+        ForEach-Object {
+            Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Verbose "  Removed stale $AppName\$($_.Name)"
+        }
+}
+
 function Get-AppDiff {
     param($Manifest, $LocalVersions)
     $names = $Manifest.apps | ForEach-Object { $_.name }
