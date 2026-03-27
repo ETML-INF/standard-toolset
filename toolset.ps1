@@ -6,11 +6,15 @@ param(
     [switch]$ForceReinstall,
     [string]$Version = "",
     [string]$ManifestSource = "",
-    [string]$PackSource = ""
+    [string]$PackSource = "",
+    [string]$LogFile = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if (-not [string]::IsNullOrEmpty($LogFile)) {
+    Start-Transcript -Path $LogFile -Append -Force | Out-Null
+}
 
 # ── helpers ────────────────────────────────────────────────────────────────
 

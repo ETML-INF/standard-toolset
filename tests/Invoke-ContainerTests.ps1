@@ -405,6 +405,30 @@ Assert "[25] no FAILED in output"           ($out25 -notmatch "FAILED")
 Assert "[25] [=] shown (up to date)"        ($out25 -match "\[=\]")
 Remove-TestDir $d25, $ps25
 
+Write-Host "[26] -LogFile creates log file with expected output" -ForegroundColor Cyan
+$d26 = "C:\tmp\s26d"; $ps26 = "C:\tmp\s26p"
+& $helper -OutputDir $ps26 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d26 | Out-Null
+$log26a = "C:\tmp\s26a.log"
+$log26b = "C:\tmp\s26b.log"
+# First instance
+pwsh -File $toolkit update -Path $d26 -ManifestSource "$ps26\release-manifest.json" -PackSource $ps26 -NoInteraction -LogFile $log26a
+$ec26a = $LASTEXITCODE
+# Second instance (separate install dir)
+$d26b = "C:\tmp\s26db"
+New-Item -Force -ItemType Directory $d26b | Out-Null
+pwsh -File $toolkit update -Path $d26b -ManifestSource "$ps26\release-manifest.json" -PackSource $ps26 -NoInteraction -LogFile $log26b
+$ec26b = $LASTEXITCODE
+Assert "[26] exit 0 with -LogFile (a)"     ($ec26a -eq 0)
+Assert "[26] exit 0 with -LogFile (b)"     ($ec26b -eq 0)
+Assert "[26] log file a created"           (Test-Path $log26a)
+Assert "[26] log file b created"           (Test-Path $log26b)
+Assert "[26] log a contains app1"          ((Get-Content $log26a -Raw) -match "app1")
+Assert "[26] log b contains app1"          ((Get-Content $log26b -Raw) -match "app1")
+Assert "[26] logs are separate files"      ($log26a -ne $log26b)
+Remove-TestDir $d26, $d26b, $ps26
+Remove-Item $log26a, $log26b -Force -ErrorAction SilentlyContinue
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) { exit 1 }
