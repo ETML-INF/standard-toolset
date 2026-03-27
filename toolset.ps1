@@ -477,12 +477,19 @@ function Remove-StaleVersionDirs {
 }
 
 function Get-AppDiff {
-    param($Manifest, $LocalVersions)
+    param($Manifest, $LocalVersions, [string]$toolsetdir, [bool]$ForceReinstall = $false)
     $names = $Manifest.apps | ForEach-Object { $_.name }
     return [pscustomobject]@{
         ToInstall = @($Manifest.apps | Where-Object { -not $LocalVersions.ContainsKey($_.name) })
         ToUpdate  = @($Manifest.apps | Where-Object { $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -ne $_.version })
-        UpToDate  = @($Manifest.apps | Where-Object { $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version })
+        ToRepair  = @($Manifest.apps | Where-Object {
+            $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
+            ($ForceReinstall -or -not (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir))
+        })
+        UpToDate  = @($Manifest.apps | Where-Object {
+            $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
+            -not $ForceReinstall -and (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir)
+        })
         Removed   = @($LocalVersions.Keys | Where-Object { $_ -notin $names })
     }
 }
@@ -493,6 +500,7 @@ function Show-AppStatus {
     Write-Host "Status:" -ForegroundColor Cyan
     foreach ($a in $Diff.UpToDate)  { Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green }
     foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($LocalVersions[$a.name]) -> $($a.version)" -ForegroundColor Yellow }
+    foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  integrity fail" -ForegroundColor Magenta }
     foreach ($a in $Diff.ToInstall) { Write-Host "  [+] $($a.name.PadRight(20)) (not installed)" -ForegroundColor Cyan }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
     Write-Host ""
