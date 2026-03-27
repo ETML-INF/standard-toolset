@@ -3,6 +3,7 @@ param(
     [string]$Path = "C:\inf-toolset",
     [switch]$NoInteraction,
     [switch]$Clean,
+    [switch]$ForceReinstall,
     [string]$Version = "",
     [string]$ManifestSource = "",
     [string]$PackSource = ""
@@ -546,9 +547,10 @@ if ($Command -eq "update") {
     Write-Host "Manifest: v$($manifest.version) ($($manifest.apps.Count) apps)" -ForegroundColor Green
 
     $localVersions = Get-LocalAppVersions -toolsetdir $toolsetdir
-    $diff     = Get-AppDiff -Manifest $manifest -LocalVersions $localVersions
+    $diff      = Get-AppDiff -Manifest $manifest -LocalVersions $localVersions -toolsetdir $toolsetdir -ForceReinstall ([bool]$ForceReinstall)
     $toInstall = $diff.ToInstall
     $toUpdate  = $diff.ToUpdate
+    $toRepair  = $diff.ToRepair
     $removed   = $diff.Removed
     Show-AppStatus -Diff $diff -LocalVersions $localVersions
 
@@ -573,7 +575,7 @@ if ($Command -eq "update") {
     }
 
     # Confirm and download
-    $toDo = @($toInstall) + @($toUpdate)
+    $toDo = @($toInstall) + @($toUpdate) + @($toRepair)
     if ($toDo.Count -eq 0) {
         Write-Host "Everything is up to date." -ForegroundColor Green
     } else {
@@ -593,6 +595,7 @@ if ($Command -eq "update") {
                 $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -NoInteraction $NoInteraction
                 Install-Pack -PackPath $packPath -toolsetdir $toolsetdir
                 if ($packPath.StartsWith($env:TEMP)) { Remove-Item $packPath -Force -ErrorAction SilentlyContinue }
+                Remove-StaleVersionDirs -toolsetdir $toolsetdir -AppName $app.name -KeepVersion $app.version
                 Write-Host " done" -ForegroundColor Green
             } catch {
                 Write-Host " FAILED" -ForegroundColor Red
