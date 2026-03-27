@@ -8,22 +8,7 @@ $toolkit = "C:\toolset-repo\toolset.ps1"
 $helper  = "C:\toolset-repo\tests\New-FakePack.ps1"
 $pass = 0; $fail = 0
 
-function Assert {
-    param([string]$Name, $Cond, [string]$Detail="")
-    if ($Cond) { Write-Host "  PASS: $Name" -ForegroundColor Green; $script:pass++ }
-    else       { Write-Host "  FAIL: $Name $Detail" -ForegroundColor Red; $script:fail++ }
-}
-
-function Remove-TestDir {
-    param([string[]]$Paths)
-    foreach ($p in $Paths) {
-        if (-not (Test-Path $p)) { continue }
-        # Strip readonly flags first so Remove-Item doesn't hit access denied
-        Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue |
-            ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
-        Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
+. (Join-Path $PSScriptRoot "Test-Helpers.ps1")
 
 Write-Host "[1] Fresh install" -ForegroundColor Cyan
 $p = "C:\tmp\s1p"; $d = "C:\tmp\s1d"

@@ -2,11 +2,7 @@ param([string]$ToolkitPath = (Join-Path (Split-Path $PSScriptRoot -Parent) "tool
 $pass = 0; $fail = 0
 $helper = Join-Path $PSScriptRoot "New-FakePack.ps1"
 
-function Assert {
-    param([string]$Name, $Cond, [string]$Detail="")
-    if ($Cond) { Write-Host "PASS: $Name" -ForegroundColor Green; $script:pass++ }
-    else       { Write-Host "FAIL: $Name $Detail" -ForegroundColor Red; $script:fail++ }
-}
+. (Join-Path $PSScriptRoot "Test-Helpers.ps1")
 
 # ── Test 1: manifest resolution via -ManifestSource ──────────────────────
 $p1 = "$env:TEMP\t1-packs-$(Get-Random)"
