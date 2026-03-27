@@ -7,52 +7,13 @@ on:
     branches: [main]
 
 jobs:
-  toolkit-tests:
-    name: Toolkit container tests
+  update-tests:
+    name: Update mode tests
     runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v4
 
-      # GitHub Actions Windows runners default to Linux containers mode.
-      # Switch before any Docker operation.
-      - uses: ./.github/actions/switch-docker-windows
-
-      # CI uses nanoserver-ltsc2022 (matches the runner OS, stable, supported).
-      # Local dev defaults to nanoserver-1909 (build 18363) so that engineers on
-      # old Win10 machines (1909/2004 era) can run tests without Hyper-V — Windows
-      # containers require host build >= container build for process isolation.
-      - name: Run toolkit tests
+      - name: Run update mode tests
         shell: pwsh
-        run: pwsh tests/Run-ContainerTests.ps1 -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022
-
-  build-tests:
-    name: Build pipeline tests
-    runs-on: windows-2022
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: ./.github/actions/switch-docker-windows
-
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      # Pull cached base image (scoop + buckets pre-installed, ~250 MB).
-      # If not in GHCR yet (first run ever), build locally from nanoserver-ltsc2022
-      # to match the runner OS. Subsequent runs use the cached image.
-      # The base image is rebuilt and pushed by the build-base-image workflow
-      # whenever tests/Dockerfile.build-base changes, or on workflow_dispatch.
-      - name: Prepare base image
-        shell: pwsh
-        run: |
-          $img = "ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest"
-          docker pull $img
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Base image not in GHCR — building locally (first-run bootstrap)."
-            pwsh tests/Build-BaseImage.ps1 -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022
-          }
-
-      - name: Run build tests
-        shell: pwsh
-        run: pwsh tests/Run-BuildTests.ps1 -BaseImage ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest
+        run: pwsh tests/Test-UpdateMode.ps1

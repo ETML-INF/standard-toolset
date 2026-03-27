@@ -1,8 +1,8 @@
 name: Switch to Windows containers
 description: >
   Switches Docker to Windows containers mode.
-  Uses DockerCli.exe on Docker Desktop (local dev) or the Windows named pipe
-  on Docker Engine (GitHub Actions runners).
+  Uses DockerCli.exe on Docker Desktop (local dev) or restarts the daemon
+  with windowsfilter storage driver on Docker Engine (GitHub Actions runners).
 
 runs:
   using: composite
@@ -14,12 +14,12 @@ runs:
         if (Test-Path $dockerCli) {
           # Docker Desktop (local dev) — explicit daemon switch
           & $dockerCli -SwitchDaemon
-          $deadline = (Get-Date).AddSeconds(60)
-          do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
         } else {
-          # Docker Engine (GitHub Actions) — use the Windows containers named pipe
-          $env:DOCKER_HOST = "npipe:////./pipe/docker_engine_windows"
-          Add-Content $env:GITHUB_ENV "DOCKER_HOST=npipe:////./pipe/docker_engine_windows"
-          $info = docker info 2>&1
+          # Docker Engine (GitHub Actions) — restart daemon with Windows containers config
+          Stop-Service docker -Force
+          '{ "storage-driver": "windowsfilter" }' | Set-Content "$env:ProgramData\docker\config\daemon.json"
+          Start-Service docker
         }
+        $deadline = (Get-Date).AddSeconds(60)
+        do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
         if ($info -notmatch "OSType: windows") { throw "Docker is not in Windows containers mode`n$info" }
