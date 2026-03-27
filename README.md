@@ -17,6 +17,12 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1 | Invoke-Expression
 ```
 
+> **En cas d'erreur de chargement de module** (ex: *"la commande Invoke-RestMethod… n'a pas pu être chargée"*), installer PowerShell 7 puis relancer :
+> ```shell
+> winget install Microsoft.PowerShell
+> ```
+> Puis relancer la commande d'installation dans une nouvelle fenêtre `pwsh`.
+
 #### En local ou offline
 
 Pour une installation sans accès à GitHub, utilisez directement `toolset.ps1 update` avec les paramètres appropriés (voir section déploiement ci-dessous).
@@ -52,7 +58,7 @@ Cela va finaliser l’installation (si nécessaire), ajouter les apps dans le PA
 
 ## Utilisation
 ### Versions de node
-Puisque NVM requiert des droits admin, pour jongler avec différentes versions d’un logiciel (par exemple node), il faut [activer le toolset](README.md#--activation--) et adapter l’exemple suivant à ses besoins:
+Puisque NVM requiert des droits admin, pour jongler avec différentes versions d’un logiciel (par exemple node), il faut [activer le toolset](README.md#activation) et adapter l’exemple suivant à ses besoins:
 
 ``` shell
 echo "Current installed node versions: " && scoop list nodejs
