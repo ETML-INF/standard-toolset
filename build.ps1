@@ -194,7 +194,13 @@ try {
             # 'current' is a scoop junction recreated by 'scoop reset *' after extraction;
             # it is excluded by the [/\\]current[/\\] filter in New-ZipPack.
             New-ZipPack -AppDir "build\scoop\apps\$appName" -DestZip $packPath
-            $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName }
+            # Read integrity metadata from the freshly-created zip (assembly already loaded by New-ZipPack)
+            $zr = [System.IO.Compression.ZipFile]::OpenRead($packPath)
+            try {
+                $fc = $zr.Entries.Count
+                $ts = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum
+            } finally { $zr.Dispose() }
+            $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts }
         }
     }
 
