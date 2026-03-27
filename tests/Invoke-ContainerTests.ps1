@@ -349,6 +349,62 @@ Assert "[21] exit 0 despite missing scoop.ps1" ($ec21 -eq 0)
 Assert "[21] warning emitted"                  ($out21 -match "scoop.ps1 not found")
 Remove-TestDir $d21
 
+Write-Host "[22] Integrity — missing file triggers repair" -ForegroundColor Cyan
+$d22 = "C:\tmp\s22d"; $ps22 = "C:\tmp\s22p"
+& $helper -OutputDir $ps22 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d22 | Out-Null
+pwsh -File $toolkit update -Path $d22 -ManifestSource "$ps22\release-manifest.json" -PackSource $ps22 -NoInteraction
+# Corrupt install: remove manifest.json from current\ dir (that's where fake pack puts files)
+Remove-Item "$d22\scoop\apps\app1\current\manifest.json" -Force -ErrorAction SilentlyContinue
+# Re-run — integrity check should detect missing file and repair
+pwsh -File $toolkit update -Path $d22 -ManifestSource "$ps22\release-manifest.json" -PackSource $ps22 -NoInteraction
+$ec22 = $LASTEXITCODE
+Assert "[22] exit 0 after repair"           ($ec22 -eq 0)
+Assert "[22] manifest.json restored"        (Test-Path "$d22\scoop\apps\app1\current\manifest.json")
+Remove-TestDir $d22, $ps22
+
+Write-Host "[23] Integrity — size mismatch triggers repair" -ForegroundColor Cyan
+$d23 = "C:\tmp\s23d"; $ps23 = "C:\tmp\s23p"
+& $helper -OutputDir $ps23 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d23 | Out-Null
+pwsh -File $toolkit update -Path $d23 -ManifestSource "$ps23\release-manifest.json" -PackSource $ps23 -NoInteraction
+# Corrupt install: append bytes so size no longer matches
+Add-Content "$d23\scoop\apps\app1\current\manifest.json" "# corrupted" -Encoding UTF8
+# Re-run — size mismatch should trigger repair
+$out23 = pwsh -File $toolkit update -Path $d23 -ManifestSource "$ps23\release-manifest.json" -PackSource $ps23 -NoInteraction 2>&1
+$ec23 = $LASTEXITCODE
+Assert "[23] exit 0 after repair"           ($ec23 -eq 0)
+Assert "[23] integrity fail shown"          ($out23 -match "\[!\]")
+$repaired23 = (Get-Content "$d23\scoop\apps\app1\current\manifest.json" -Raw) -notmatch "corrupted"
+Assert "[23] manifest.json restored clean"  ($repaired23)
+Remove-TestDir $d23, $ps23
+
+Write-Host "[24] -ForceReinstall reinstalls up-to-date app" -ForegroundColor Cyan
+$d24 = "C:\tmp\s24d"; $ps24 = "C:\tmp\s24p"
+& $helper -OutputDir $ps24 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d24 | Out-Null
+pwsh -File $toolkit update -Path $d24 -ManifestSource "$ps24\release-manifest.json" -PackSource $ps24 -NoInteraction
+$out24 = pwsh -File $toolkit update -Path $d24 -ManifestSource "$ps24\release-manifest.json" -PackSource $ps24 -NoInteraction -ForceReinstall 2>&1
+$ec24 = $LASTEXITCODE
+Assert "[24] exit 0"                        ($ec24 -eq 0)
+Assert "[24] [!] shown for forced app"      ($out24 -match "\[!\]")
+Assert "[24] manifest.json present"         (Test-Path "$d24\scoop\apps\app1\current\manifest.json")
+Remove-TestDir $d24, $ps24
+
+Write-Host "[25] Integrity pass — no download when healthy" -ForegroundColor Cyan
+$d25 = "C:\tmp\s25d"; $ps25 = "C:\tmp\s25p"
+& $helper -OutputDir $ps25 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d25 | Out-Null
+pwsh -File $toolkit update -Path $d25 -ManifestSource "$ps25\release-manifest.json" -PackSource $ps25 -NoInteraction
+# Delete the zip — if integrity passes, no download is attempted and update still succeeds
+Remove-Item "$ps25\app1-1.0.0.zip" -Force
+$out25 = pwsh -File $toolkit update -Path $d25 -ManifestSource "$ps25\release-manifest.json" -PackSource $ps25 -NoInteraction 2>&1
+$ec25 = $LASTEXITCODE
+Assert "[25] exit 0 without zip"            ($ec25 -eq 0)
+Assert "[25] no FAILED in output"           ($out25 -notmatch "FAILED")
+Assert "[25] [=] shown (up to date)"        ($out25 -match "\[=\]")
+Remove-TestDir $d25, $ps25
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) { exit 1 }
