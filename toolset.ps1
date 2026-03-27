@@ -118,7 +118,7 @@ function Invoke-Activate {
     }
 
     $scoopPs1 = "$scoopdir\apps\scoop\current\bin\scoop.ps1"
-    if (Test-Path $scoopPs1) {
+    if (Test-Path $scoopPs1 -ErrorAction SilentlyContinue) {
         Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
         & $scoopPs1 reset *
     } else {
