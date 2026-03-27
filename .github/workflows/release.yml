@@ -83,7 +83,6 @@ jobs:
              }
              gh release upload $tag toolset.ps1 --clobber
              gh release upload $tag setup.ps1 --clobber
-             gh release upload $tag gitconfig.ps1 --clobber
              # versions.txt is produced by the existing 'Generate cache hash' step
              # (which does: scoop list > hash.txt; mv hash.txt versions.txt)
              gh release upload $tag versions.txt --clobber

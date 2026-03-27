@@ -88,7 +88,7 @@ foreach ($app in $manifestJson.apps) {
     Write-Host " done" -ForegroundColor Green
 }
 
-foreach ($scriptName in @("toolset.ps1", "setup.ps1", "gitconfig.ps1")) {
+foreach ($scriptName in @("toolset.ps1", "setup.ps1")) {
     $scriptUrl = "$repoBase/download/v$Version/$scriptName"
     try {
         Invoke-WebRequest $scriptUrl -OutFile "$verDir\$scriptName" -ErrorAction Stop

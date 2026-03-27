@@ -75,6 +75,34 @@ function Invoke-NodeCheck {
     }
 }
 
+function Set-GitSafeDirectory {
+    param([string]$gitconfigPath, [string]$toolsetdir)
+
+    $add = "`tdirectory = $($toolsetdir -replace '\\', '/')/*"
+
+    $content = if (Test-Path $gitconfigPath) { @(Get-Content $gitconfigPath) } else { @() }
+
+    $safeIndex = ($content | Select-String "^\[safe\]$" | Select-Object -First 1).LineNumber - 1
+    $dirIndex = if ($safeIndex -ge 0) {
+        $afterSafe = $content[($safeIndex+1)..($content.Length-1)]
+        $hit = $afterSafe | Select-String "^\s*directory\s*=" | Select-Object -First 1
+        if ($hit) { $safeIndex + $hit.LineNumber } else { -1 }
+    } else { -1 }
+
+    if ($safeIndex -ge 0) {
+        if ($dirIndex -ge 0) {
+            $content[$dirIndex] = $add
+        } else {
+            $tail = if (($safeIndex + 1) -le ($content.Length - 1)) { $content[($safeIndex+1)..($content.Length-1)] } else { @() }
+            $content = $content[0..$safeIndex] + @($add) + $tail
+        }
+    } else {
+        $content = @("[safe]", $add) + $content
+    }
+
+    $content | Set-Content $gitconfigPath -Encoding UTF8
+}
+
 function Invoke-Activate {
     param([string]$toolsetdir, [bool]$NoInteraction)
 
@@ -151,19 +179,12 @@ function Invoke-Activate {
         }
     }
 
-    # Git safe.directory — only when gitconfig.ps1 is co-located with toolset.ps1
-    $gitconfigScript = Join-Path $PSScriptRoot "gitconfig.ps1"
-    if (Test-Path $gitconfigScript) {
-        try {
-            git | Out-Null
-            $gitconfigPath = "$env:USERPROFILE\.gitconfig"
-            & $gitconfigScript $gitconfigPath $toolsetdir
-            Write-Output "Git safe.directory configured"
-        } catch [System.Management.Automation.CommandNotFoundException] {
-            Write-Host "Git not installed. Re-run toolset.ps1 after installing git." -ForegroundColor Red
-        }
+    # Git safe.directory — inline logic, no external script dependency
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        Set-GitSafeDirectory -gitconfigPath "$env:USERPROFILE\.gitconfig" -toolsetdir $toolsetdir
+        Write-Output "Git safe.directory configured"
     } else {
-        Write-Verbose "gitconfig.ps1 not found at $gitconfigScript — skipping git safe.directory setup"
+        Write-Host "Git not installed. Re-run toolset.ps1 after installing git." -ForegroundColor Red
     }
 
     # Admin Node.js detection
