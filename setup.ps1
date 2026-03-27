@@ -28,7 +28,10 @@ Write-Host ""
 $downloaded = $false
 try {
     Write-Host "Downloading toolset.ps1 from GitHub..." -ForegroundColor Yellow
-    Invoke-WebRequest $githubUrl -OutFile $tmpToolset -ErrorAction Stop
+    # Additive TLS 1.2 flag — the -bor 3072 pattern (3072 = Tls12) is the scoop/choco proven
+    # approach: works on .NET 2.0+, doesn't remove TLS 1.3, no enum dependency.
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    (New-Object System.Net.WebClient).DownloadFile($githubUrl, $tmpToolset)
     $downloaded = $true
     Write-Host "Downloaded from GitHub." -ForegroundColor Green
 } catch {

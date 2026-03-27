@@ -1,5 +1,8 @@
 name: Validate and Test
-description: Validates apps.json syntax and runs the update-mode test suite (no Windows containers required).
+description: >
+  Validates apps.json, runs update-mode tests, switches Docker to Windows containers,
+  and runs the toolkit container test suite. All tests in one place so container
+  issues are caught by the same job that validates config.
 
 runs:
   using: composite
@@ -11,3 +14,11 @@ runs:
     - name: Run update mode tests
       shell: pwsh
       run: pwsh tests/Test-UpdateMode.ps1
+
+    - uses: ./.github/actions/switch-docker-windows
+
+    # nanoserver:ltsc2022 is pre-cached on windows-2022 runners (zero pull time).
+    # Runner OS build = 20348, container build = 20348 → process isolation guaranteed.
+    - name: Run toolkit container tests
+      shell: pwsh
+      run: pwsh tests/Run-ContainerTests.ps1 -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022

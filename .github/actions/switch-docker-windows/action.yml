@@ -1,8 +1,8 @@
 name: Switch to Windows containers
 description: >
   Switches Docker to Windows containers mode.
-  Uses DockerCli.exe on Docker Desktop (local dev) or restarts the daemon
-  with windowsfilter storage driver on Docker Engine (GitHub Actions runners).
+  Uses DockerCli.exe on Docker Desktop (local dev) or merges the storage-driver
+  key into the existing daemon.json on Docker Engine (GitHub Actions runners).
 
 runs:
   using: composite
@@ -15,10 +15,18 @@ runs:
           # Docker Desktop (local dev) — explicit daemon switch
           & $dockerCli -SwitchDaemon
         } else {
-          # Docker Engine (GitHub Actions) — restart daemon with Windows containers config
-          Stop-Service docker -Force
-          '{ "storage-driver": "windowsfilter" }' | Set-Content "$env:ProgramData\docker\config\daemon.json"
-          Start-Service docker
+          # Docker Engine (GitHub Actions) — merge storage-driver into existing
+          # daemon.json rather than clobbering it, so proxies / registry mirrors
+          # and other runner settings are preserved.
+          $daemonJson = "$env:ProgramData\docker\config\daemon.json"
+          $cfg = if (Test-Path $daemonJson) {
+            Get-Content $daemonJson -Raw | ConvertFrom-Json
+          } else {
+            [pscustomobject]@{}
+          }
+          $cfg | Add-Member -Force -NotePropertyName 'storage-driver' -NotePropertyValue 'windowsfilter'
+          $cfg | ConvertTo-Json -Depth 5 | Set-Content $daemonJson -Encoding UTF8
+          Restart-Service docker
         }
         $deadline = (Get-Date).AddSeconds(60)
         do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))

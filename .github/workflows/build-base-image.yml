@@ -7,9 +7,12 @@ on:
     paths:
       - tests/Dockerfile.build-base   # auto-rebuild when the base definition changes
 
+env:
+  RUNNER: windows-2022   # pin OS build for process-isolation containers (ltsc2022 = build 20348)
+
 jobs:
   build-and-push:
-    runs-on: windows-2022
+    runs-on: ${{ env.RUNNER }}
 
     permissions:
       packages: write       # required to push to GHCR

@@ -6,11 +6,42 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  update-tests:
-    name: Update mode tests
-    runs-on: windows-2022
+env:
+  RUNNER: windows-2022   # pin OS build for process-isolation containers (ltsc2022 = build 20348)
 
+jobs:
+  test:
+    name: Validate and test
+    runs-on: ${{ env.RUNNER }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/validate-and-test
+
+  build-tests:
+    name: Build pipeline tests
+    runs-on: ${{ env.RUNNER }}
+    needs: test         # skip if validation or toolkit tests fail
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/switch-docker-windows
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # Pull cached base image (scoop + buckets pre-installed).
+      # If not in GHCR yet (first run), build locally from nanoserver-ltsc2022.
+      - name: Prepare base image
+        shell: pwsh
+        run: |
+          $img = "ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest"
+          docker pull $img
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Base image not in GHCR — building locally (first-run bootstrap)."
+            pwsh tests/Build-BaseImage.ps1 -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022
+          }
+
+      - name: Run build tests
+        shell: pwsh
+        run: pwsh tests/Run-BuildTests.ps1 -BaseImage ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest

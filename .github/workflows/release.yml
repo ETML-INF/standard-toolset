@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+env:
+  RUNNER: windows-2022   # pin OS build for process-isolation containers (ltsc2022 = build 20348)
+
 permissions:
   contents: write
   pull-requests: write
@@ -13,7 +16,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: windows-latest
+    runs-on: ${{ env.RUNNER }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release

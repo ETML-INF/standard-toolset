@@ -8,16 +8,17 @@ La liste des apps est décrite dans le fichier [apps.json](apps.json)
 ### Cmd.exe
 
 ``` shell
-powershell -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1 | Invoke-Expression"
+powershell -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1'))"
 ```
 
 ### Powershell / Pwsh
 ```pwsh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-Invoke-RestMethod -Uri https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1 | Invoke-Expression
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+iex ((New-Object System.Net.WebClient).DownloadString('https://github.com/ETML-INF/standard-toolset/raw/main/setup.ps1'))
 ```
 
-> **En cas d'erreur de chargement de module** (ex: *"la commande Invoke-RestMethod… n'a pas pu être chargée"*), installer PowerShell 7 puis relancer :
+> **En cas d'erreur** (ex: stratégie d'exécution bloquée), installer PowerShell 7 puis relancer :
 > ```shell
 > winget install Microsoft.PowerShell
 > ```
