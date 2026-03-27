@@ -19,11 +19,17 @@ jobs:
       - name: Switch to Windows containers
         shell: pwsh
         run: |
-          & "$env:ProgramFiles\Docker\Docker\DockerCli.exe" -SwitchDaemon
-          # Wait for daemon to restart in Windows mode (switch is async)
-          $deadline = (Get-Date).AddSeconds(60)
-          do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
-          if ($info -notmatch "OSType: windows") { throw "Docker did not switch to Windows containers in time" }
+          $dockerCli = "$env:ProgramFiles\Docker\Docker\DockerCli.exe"
+          if (Test-Path $dockerCli) {
+            # Docker Desktop (local dev) — explicit switch required
+            & $dockerCli -SwitchDaemon
+            $deadline = (Get-Date).AddSeconds(60)
+            do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
+          } else {
+            # Docker Engine on Windows Server (CI) — already in Windows containers mode
+            $info = docker info 2>&1
+          }
+          if ($info -notmatch "OSType: windows") { throw "Docker is not in Windows containers mode" }
 
       # CI uses nanoserver-ltsc2022 (matches the runner OS, stable, supported).
       # Local dev defaults to nanoserver-1909 (build 18363) so that engineers on
@@ -43,11 +49,17 @@ jobs:
       - name: Switch to Windows containers
         shell: pwsh
         run: |
-          & "$env:ProgramFiles\Docker\Docker\DockerCli.exe" -SwitchDaemon
-          # Wait for daemon to restart in Windows mode (switch is async)
-          $deadline = (Get-Date).AddSeconds(60)
-          do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
-          if ($info -notmatch "OSType: windows") { throw "Docker did not switch to Windows containers in time" }
+          $dockerCli = "$env:ProgramFiles\Docker\Docker\DockerCli.exe"
+          if (Test-Path $dockerCli) {
+            # Docker Desktop (local dev) — explicit switch required
+            & $dockerCli -SwitchDaemon
+            $deadline = (Get-Date).AddSeconds(60)
+            do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
+          } else {
+            # Docker Engine on Windows Server (CI) — already in Windows containers mode
+            $info = docker info 2>&1
+          }
+          if ($info -notmatch "OSType: windows") { throw "Docker is not in Windows containers mode" }
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
