@@ -109,7 +109,7 @@ function Invoke-Activate {
     $scoopdir = "$toolsetdir\scoop"
 
     # Remove legacy files left by the old zip-based install
-    @('activate.ps1', 'install.ps1', 'toolkit.ps1') | ForEach-Object {
+    @('activate.ps1', 'install.ps1') | ForEach-Object {
         $legacy = Join-Path $toolsetdir $_
         if (Test-Path $legacy) {
             Remove-Item $legacy -Force -ErrorAction SilentlyContinue

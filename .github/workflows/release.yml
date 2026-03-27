@@ -53,7 +53,7 @@ jobs:
         run: |
              # Stable format: explicit Name=Version strings, sorted — immune to scoop output column changes.
              build\scoop\shims\scoop list |
-                 Where-Object { $_ -is [PSCustomObject] } |
+                 Where-Object { $_ -is [PSCustomObject] -and $_.Name -and $_.Version } |
                  Sort-Object Name |
                  ForEach-Object { "$($_.Name)=$($_.Version)" } |
                  Set-Content hash.txt
