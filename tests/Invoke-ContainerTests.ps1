@@ -368,14 +368,17 @@ $d23 = "C:\tmp\s23d"; $ps23 = "C:\tmp\s23p"
 & $helper -OutputDir $ps23 -Apps @(@{Name="app1";Version="1.0.0"})
 New-Item -Force -ItemType Directory $d23 | Out-Null
 pwsh -File $toolkit update -Path $d23 -ManifestSource "$ps23\release-manifest.json" -PackSource $ps23 -NoInteraction
-# Corrupt install: append bytes so size no longer matches
-Add-Content "$d23\scoop\apps\app1\current\manifest.json" "# corrupted" -Encoding UTF8
+# Corrupt install: inject extra field via substring splice — must stay valid JSON so
+# Get-LocalAppVersions can read the version (repair, not re-install) and size mismatch is detected.
+$raw23 = (Get-Content "$d23\scoop\apps\app1\current\manifest.json" -Raw).TrimEnd()
+($raw23.Substring(0, $raw23.Length - 1) + ',"_pad":"size-pad-extra"}') |
+    Set-Content "$d23\scoop\apps\app1\current\manifest.json" -Encoding UTF8
 # Re-run — size mismatch should trigger repair
 $out23 = pwsh -File $toolkit update -Path $d23 -ManifestSource "$ps23\release-manifest.json" -PackSource $ps23 -NoInteraction 2>&1
 $ec23 = $LASTEXITCODE
 Assert "[23] exit 0 after repair"           ($ec23 -eq 0)
 Assert "[23] integrity fail shown"          ($out23 -match "\[!\]")
-$repaired23 = (Get-Content "$d23\scoop\apps\app1\current\manifest.json" -Raw) -notmatch "corrupted"
+$repaired23 = (Get-Content "$d23\scoop\apps\app1\current\manifest.json" -Raw) -notmatch "_pad"
 Assert "[23] manifest.json restored clean"  ($repaired23)
 Remove-TestDir $d23, $ps23
 

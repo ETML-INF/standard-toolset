@@ -169,13 +169,13 @@ function Invoke-Activate {
     $shimpath = "$scoopdir\shims"
     @("$shimpath\scoop","$shimpath\scoop.cmd","$shimpath\scoop.ps1") | ForEach-Object {
         $c = Get-Content $_ -Raw
-        $c -replace '[A-Z]:.*?\\scoop\\', "$scoopdir\" | Set-Content $_ -NoNewline
+        $c -replace '[A-Z]:.*?\\scoop\\', "$scoopdir\" | Set-Content $_ -NoNewline -Encoding utf8NoBOM
     }
 
     Write-Host "Fixing reg file paths..." -ForegroundColor Green
-    Get-ChildItem "$scoopdir\apps\*\current\*.reg" -Recurse | ForEach-Object {
+    Get-ChildItem "$scoopdir\apps\*\current\*.reg" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
         $c = Get-Content $_ -Raw
-        $c -replace '[A-Z]:.*?\\\\scoop\\\\', "$($scoopdir -replace '\\','\\')\" | Set-Content $_ -NoNewline
+        $c -replace '[A-Z]:.*?\\\\scoop\\\\', "$($scoopdir -replace '\\','\\')\" | Set-Content $_ -NoNewline -Encoding Unicode
     }
 
     # VSCode context menu — use direct path, no dependency on scoop being on PATH
@@ -227,14 +227,17 @@ function Invoke-Activate {
         )
         foreach ($root in $scanRoots) {
             if (-not (Test-Path $root)) { continue }
-            Get-ChildItem $root -Recurse -File -ErrorAction SilentlyContinue |
-                Where-Object { $textExts -contains $_.Extension.ToLower() } |
-                ForEach-Object {
-                    $c = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
-                    if ($c -and $c -match $oldPattern) {
-                        $c -replace $oldPattern, $newPersist | Set-Content $_.FullName -NoNewline
-                    }
+            # Use .NET enumeration for performance on large trees (node_modules has thousands of files)
+            try { $files = [System.IO.Directory]::EnumerateFiles($root, '*', [System.IO.SearchOption]::AllDirectories) }
+            catch { continue }
+            foreach ($file in $files) {
+                $ext = [System.IO.Path]::GetExtension($file)
+                if (-not $ext -or $textExts -notcontains $ext.ToLowerInvariant()) { continue }
+                $c = Get-Content $file -Raw -ErrorAction SilentlyContinue
+                if ($c -and $c -match $oldPattern) {
+                    $c -replace $oldPattern, $newPersist | Set-Content $file -NoNewline -Encoding utf8NoBOM
                 }
+            }
         }
     }
 
@@ -341,7 +344,18 @@ function Get-LocalAppVersions {
     $appsDir = "$toolsetdir\scoop\apps"
     if (-not (Test-Path $appsDir)) { return $result }
     Get-ChildItem $appsDir -Directory | ForEach-Object {
-        $mPath = "$($_.FullName)\current\manifest.json"
+        $appDir = $_.FullName
+        # current\ is a junction created by "scoop reset *" during Invoke-Activate.
+        # On a freshly extracted toolset (L: copy, manual zip) it doesn't exist yet —
+        # fall back to the versioned subdirectory so update doesn't re-download everything.
+        $mPath = "$appDir\current\manifest.json"
+        if (-not (Test-Path $mPath)) {
+            $vDir = Get-ChildItem $appDir -Directory |
+                        Where-Object { $_.Name -ne 'current' } |
+                        Sort-Object Name -Descending |
+                        Select-Object -First 1
+            if ($vDir) { $mPath = "$($vDir.FullName)\manifest.json" }
+        }
         if (Test-Path $mPath) {
             try { $result[$_.Name] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
         }
@@ -515,10 +529,36 @@ function Install-Pack {
     param([string]$PackPath, [string]$toolsetdir)
     $appsDir = "$toolsetdir\scoop\apps"
     New-Item -ItemType Directory -Force -Path $appsDir | Out-Null
+
+    # Pack root contains top-level app dirs (e.g. git\, vscode\); each holds one or more
+    # versioned subdirs (e.g. vscode\1.88.0\). We delete the entire app dir before installing:
+    #   - update (1.87→1.88): removes the old orphaned version dir (different folder, no conflict
+    #     without cleanup, but wastes space indefinitely — rollback is not supported in our model)
+    #   - repair (same version): Expand-Archive -Force overwrites matching files but never deletes
+    #     files removed between pack builds; pre-removal guarantees a bit-perfect install
+
     if (Test-Path $PackPath -PathType Container) {
-        # Pre-extracted pack (L: directory) — contents mirror zip root, copy directly into apps\
+        # Pre-extracted pack (L: directory) — top-level dirs are app names, same as zip root
+        Get-ChildItem $PackPath -Directory | ForEach-Object {
+            $dest = Join-Path $appsDir $_.Name
+            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+        }
         Copy-Item "$PackPath\*" $appsDir -Recurse -Force
     } else {
+        # Zip pack — open to enumerate top-level dir names, then remove before expanding
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($PackPath)
+        try {
+            $topDirs = @{}
+            foreach ($e in $zip.Entries) {
+                $first = ($e.FullName -replace '\\', '/').Split('/')[0]
+                if ($first) { $topDirs[$first] = $true }
+            }
+        } finally { $zip.Dispose() }
+        foreach ($name in $topDirs.Keys) {
+            $dest = Join-Path $appsDir $name
+            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+        }
         Expand-Archive -Path $PackPath -DestinationPath $appsDir -Force
     }
 }
