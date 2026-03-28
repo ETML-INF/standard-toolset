@@ -13,40 +13,25 @@ fixtures/
 
 ## Generating Mock Releases
 
-Mock releases are generated dynamically by test helper scripts. To manually create mock releases:
+Mock releases are generated dynamically by test helper scripts and Pester tests. In normal
+development and CI runs you do not need to create anything manually in `mock-releases/` —
+the tests will create and clean up their own fixtures under `$env:TEMP`.
 
-```powershell
-# Import helper
-. .\tests\helpers\New-MockReleaseRepository.ps1
-
-# Create mock repository
-$mockRepo = New-MockReleaseRepository -Releases @(
-    @{
-        Tag = "v1.9.0"
-        Apps = @{git="2.40.0"; node="18.0.0"; python="3.11.0"}
-    },
-    @{
-        Tag = "v1.9.1"
-        Apps = @{git="2.40.0"; node="20.0.0"; python="3.11.0"}
-        Delta = $true
-    }
-) -OutputPath ".\tests\fixtures\mock-releases"
-```
+If you want to explore how mock releases are built, inspect the helper scripts under the `tests/`
+directory (for example `tests/New-FakePack.ps1`) and the integration test suites in
+`tests/integration/`. Those scripts document the supported parameters and how mock release
+fixtures are laid out on disk.
 
 ## Mock Installation
 
-To create a mock installation for testing:
+Mock installations used in tests are created programmatically by the integration test suites,
+usually in unique, temporary directories under `$env:TEMP` to avoid polluting the repository
+or any real installation.
 
-```powershell
-# Import helper
-. .\tests\helpers\New-MockInstallation.ps1
-
-# Create mock installation
-$install = New-MockInstallation `
-    -Version "v1.9.0" `
-    -Apps @{git="2.40.0"; node="18.0.0"; python="3.11.0"} `
-    -OutputPath "C:\temp\test-install"
-```
+To experiment manually, follow the patterns used in the existing test helpers and create a
+temporary directory (for example `Join-Path $env:TEMP ([guid]::NewGuid().ToString())`) that
+mimics the expected installation structure. The exact layout and required files are described
+in the tests under `tests/integration/`.
 
 ## Usage in Tests
 

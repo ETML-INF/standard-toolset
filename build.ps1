@@ -117,23 +117,32 @@ try {
     $reusedCount   = 0
 
     # ── Pre-flight: check available version via scoop cat ─────────────────
+    # Use bucket-qualified name when available to avoid ambiguity across buckets.
     # 'scoop cat <app>' uses scoop's own bucket priority — no internal path assumptions.
     foreach ($app in $apps) {
-        $appName = $app.name
+        $appName     = $app.name
+        $qualifiedName = if ($app | Get-Member -Name 'bucket') { "$($app.bucket)/$($app.name)" } else { $app.name }
 
         $availVer = $null
         if ($app | Get-Member -Name 'version') {
             $availVer = $app.version  # pinned in apps.json
         } else {
             try {
-                $catOutput = & scoop cat $appName 2>&1
-                $availVer  = ($catOutput | ConvertFrom-Json).version
+                $catOutput = & scoop cat $qualifiedName 2>&1
+                $catText   = $catOutput -join "`n"
+                $catTrim   = $catText.TrimStart()
+                if ($catTrim.StartsWith('{') -or $catTrim.StartsWith('[')) {
+                    $manifest = $catText | ConvertFrom-Json
+                    if ($manifest -and $manifest.PSObject.Properties.Name -contains 'version') {
+                        $availVer = $manifest.version
+                    }
+                }
             } catch { }
         }
 
         $reused = $false
         if ($availVer) {
-            $key = "$($appName):$($availVer)"
+            $key = "$($qualifiedName):$($availVer)"
             if ($packLibrary.ContainsKey($key)) {
                 $entry    = $packLibrary[$key]
                 $destPack = "$packsDir\$($entry.pack)"

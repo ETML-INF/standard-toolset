@@ -89,9 +89,20 @@ function Set-GitSafeDirectory {
 
     $safeIndex = ($content | Select-String "^\[safe\]$" | Select-Object -First 1).LineNumber - 1
     $dirIndex = if ($safeIndex -ge 0) {
-        $afterSafe = $content[($safeIndex+1)..($content.Length-1)]
-        $hit = $afterSafe | Select-String "^\s*directory\s*=" | Select-Object -First 1
-        if ($hit) { $safeIndex + $hit.LineNumber } else { -1 }
+        if (($safeIndex + 1) -gt ($content.Length - 1)) {
+            -1
+        } else {
+            $searchRange  = $content[($safeIndex + 1)..($content.Length - 1)]
+            $nextSection  = $searchRange | Select-String "^\[.+\]" | Select-Object -First 1
+            $sectionEnd   = if ($nextSection) { $safeIndex + $nextSection.LineNumber } else { $content.Length }
+            if (($safeIndex + 1) -ge $sectionEnd) {
+                -1
+            } else {
+                $inSafe = $content[($safeIndex + 1)..($sectionEnd - 1)]
+                $hit    = $inSafe | Select-String "^\s*directory\s*=" | Select-Object -First 1
+                if ($hit) { $safeIndex + $hit.LineNumber } else { -1 }
+            }
+        }
     } else { -1 }
 
     if ($safeIndex -ge 0) {
@@ -692,7 +703,7 @@ if ($Command -eq "update") {
     }
     Write-Host "Manifest: v$($manifest.version) ($($manifest.apps.Count) apps)" -ForegroundColor Green
     $localVersions = Get-LocalAppVersions -toolsetdir $toolsetdir
-    $diff = Get-AppDiff -Manifest $manifest -LocalVersions $localVersions
+    $diff = Get-AppDiff -Manifest $manifest -LocalVersions $localVersions -toolsetdir $toolsetdir
     Show-AppStatus -Diff $diff -LocalVersions $localVersions
     $pending = $diff.ToInstall.Count + $diff.ToUpdate.Count
     if ($pending -gt 0) {
