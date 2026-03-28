@@ -6,20 +6,20 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  RUNNER: windows-2022   # pin OS build for process-isolation containers (ltsc2022 = build 20348)
+# Runner pin: windows-2022 (OS build 20348 = ltsc2022, required for process-isolation containers).
+# Update all three workflow files together if this ever needs to change.
 
 jobs:
   test:
     name: Validate and test
-    runs-on: ${{ env.RUNNER }}
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/validate-and-test
 
   build-tests:
     name: Build pipeline tests
-    runs-on: ${{ env.RUNNER }}
+    runs-on: windows-2022
     needs: test         # skip if validation or toolkit tests fail
 
     steps:

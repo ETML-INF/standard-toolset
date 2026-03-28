@@ -5,8 +5,8 @@ on:
     branches:
       - main
 
-env:
-  RUNNER: windows-2022   # pin OS build for process-isolation containers (ltsc2022 = build 20348)
+# Runner pin: windows-2022 (OS build 20348 = ltsc2022, required for process-isolation containers).
+# Update all three workflow files together if this ever needs to change.
 
 permissions:
   contents: write
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ${{ env.RUNNER }}
+    runs-on: windows-2022
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
