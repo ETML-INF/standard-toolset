@@ -25,7 +25,10 @@ runs:
             [pscustomobject]@{}
           }
           $cfg | Add-Member -Force -NotePropertyName 'storage-driver' -NotePropertyValue 'windowsfilter'
-          $cfg | ConvertTo-Json -Depth 5 | Set-Content $daemonJson -Encoding UTF8
+          # Write without BOM — Set-Content -Encoding UTF8 adds a BOM in PS 5.1
+          # which makes Docker fail to parse daemon.json and refuse to start.
+          $json = $cfg | ConvertTo-Json -Depth 5 -Compress
+          [System.IO.File]::WriteAllText($daemonJson, $json, [System.Text.UTF8Encoding]::new($false))
           Restart-Service docker
         }
         $deadline = (Get-Date).AddSeconds(60)
