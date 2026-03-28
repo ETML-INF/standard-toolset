@@ -10,26 +10,44 @@ runs:
     - name: Switch to Windows containers
       shell: pwsh
       run: |
+        # Skip if already in Windows containers mode (idempotent on re-runs).
+        $info = docker info 2>&1
+        if ($info -match "OSType: windows") {
+          Write-Host "Docker already in Windows containers mode — skipping switch."
+          exit 0
+        }
+
         $dockerCli = "$env:ProgramFiles\Docker\Docker\DockerCli.exe"
         if (Test-Path $dockerCli) {
           # Docker Desktop (local dev) — explicit daemon switch
           & $dockerCli -SwitchDaemon
         } else {
-          # Docker Engine (GitHub Actions) — merge storage-driver into existing
-          # daemon.json rather than clobbering it, so proxies / registry mirrors
-          # and other runner settings are preserved.
+          # Docker Engine (GitHub Actions) — write a Windows-mode daemon.json.
+          # We keep only the 'hosts' binding from the existing file (needed for
+          # the Docker client to connect) and drop Linux-specific keys (storage,
+          # bridge, network-mode, etc.) that conflict with Windows container mode.
           $daemonJson = "$env:ProgramData\docker\config\daemon.json"
-          $cfg = if (Test-Path $daemonJson) {
-            Get-Content $daemonJson -Raw | ConvertFrom-Json
-          } else {
-            [pscustomobject]@{}
+          Write-Host "Original daemon.json: $(if (Test-Path $daemonJson) { Get-Content $daemonJson -Raw } else { '<missing>' })"
+
+          $hosts = $null
+          if (Test-Path $daemonJson) {
+            $orig = Get-Content $daemonJson -Raw | ConvertFrom-Json
+            $hosts = $orig.PSObject.Properties['hosts']?.Value
           }
-          $cfg | Add-Member -Force -NotePropertyName 'storage-driver' -NotePropertyValue 'windowsfilter'
-          # Write without BOM — Set-Content -Encoding UTF8 adds a BOM in PS 5.1
-          # which makes Docker fail to parse daemon.json and refuse to start.
-          $json = $cfg | ConvertTo-Json -Depth 5 -Compress
+          $cfg = [ordered]@{ 'storage-driver' = 'windowsfilter' }
+          if ($hosts) { $cfg['hosts'] = $hosts }
+          $json = $cfg | ConvertTo-Json -Compress
+          Write-Host "New daemon.json: $json"
           [System.IO.File]::WriteAllText($daemonJson, $json, [System.Text.UTF8Encoding]::new($false))
-          Restart-Service docker
+
+          Stop-Service docker -Force
+          Start-Sleep -Seconds 3
+          try {
+            Start-Service docker -ErrorAction Stop
+          } catch {
+            Write-Error "Docker failed to start. Event log:`n$(Get-EventLog Application -Source '*docker*' -Newest 5 -ErrorAction SilentlyContinue | ForEach-Object { $_.Message } | Out-String)"
+            throw
+          }
         }
         $deadline = (Get-Date).AddSeconds(60)
         do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
