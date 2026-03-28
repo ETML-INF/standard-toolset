@@ -27,12 +27,20 @@ $add = "`tdirectory = $($toolsetdir -replace '\\', '/')/*"
 $content = if (Test-Path $path) { @(Get-Content $path) } else { @() }
 
 $safeIndex = ($content | Select-String "^\[safe\]$" | Select-Object -First 1).LineNumber - 1
-# Scope directory search to lines after [safe] to avoid matching other sections
-$dirIndex = if ($safeIndex -ge 0) {
-    $afterSafe = $content[($safeIndex+1)..($content.Length-1)]
-    $hit = $afterSafe | Select-String "^\s*directory\s*=" | Select-Object -First 1
-    if ($hit) { $safeIndex + $hit.LineNumber } else { -1 }
-} else { -1 }
+# Scope directory search to the [safe] section body only (stop at next [section] header)
+$dirIndex = -1
+if ($safeIndex -ge 0) {
+    $start = $safeIndex + 1
+    if ($start -lt $content.Length) {
+        $sectionSlice   = $content[$start..($content.Length - 1)]
+        $nextSectionHit = $sectionSlice | Select-String "^\[.+\]" | Select-Object -First 1
+        $end = if ($nextSectionHit) { $start + $nextSectionHit.LineNumber - 2 } else { $content.Length - 1 }
+        if ($end -ge $start) {
+            $hit = $content[$start..$end] | Select-String "^\s*directory\s*=" | Select-Object -First 1
+            if ($hit) { $dirIndex = $start + $hit.LineNumber - 1 }
+        }
+    }
+}
 
 if ($safeIndex -ge 0) {
     if ($dirIndex -ge 0) {

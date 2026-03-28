@@ -195,7 +195,7 @@ function Invoke-Activate {
             $c, '[A-Z]:.*?\\\\scoop\\\\',
             [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $regReplacement }
         )
-        $unicodeEncoding = [System.Text.UnicodeEncoding]::new($false, $false)
+        $unicodeEncoding = [System.Text.UnicodeEncoding]::new($false, $true)  # LE with BOM, required by reg import
         [System.IO.File]::WriteAllText($_, $newContent, $unicodeEncoding)
     }
 
@@ -603,6 +603,9 @@ if ($Command -eq "update") {
         # Try the conventional alternative before creating at the given path
         if (Test-Path "D:\data\inf-toolset") {
             $toolsetdir = "D:\data\inf-toolset"
+        } elseif ($toolsetdir -like '\\*') {
+            Write-Host "The specified toolset path '$toolsetdir' is an unreachable UNC path. Ensure the network location is available and try again." -ForegroundColor Red
+            exit 1
         } else {
             New-Item -ItemType Directory -Force -Path $toolsetdir | Out-Null
             Write-Host "Created $toolsetdir (fresh install)" -ForegroundColor Green
