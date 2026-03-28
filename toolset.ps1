@@ -180,13 +180,23 @@ function Invoke-Activate {
     $shimpath = "$scoopdir\shims"
     @("$shimpath\scoop","$shimpath\scoop.cmd","$shimpath\scoop.ps1") | ForEach-Object {
         $c = Get-Content $_ -Raw
-        $c -replace '[A-Z]:.*?\\scoop\\', "$scoopdir\" | Set-Content $_ -NoNewline -Encoding utf8NoBOM
+        $newContent = [System.Text.RegularExpressions.Regex]::Replace(
+            $c, '[A-Z]:.*?\\scoop\\',
+            [System.Text.RegularExpressions.MatchEvaluator]{ param($m) "$scoopdir\" }
+        )
+        [System.IO.File]::WriteAllText($_, $newContent, [System.Text.UTF8Encoding]::new($false))
     }
 
     Write-Host "Fixing reg file paths..." -ForegroundColor Green
     Get-ChildItem "$scoopdir\apps\*\current\*.reg" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
         $c = Get-Content $_ -Raw
-        $c -replace '[A-Z]:.*?\\\\scoop\\\\', "$($scoopdir -replace '\\','\\')\" | Set-Content $_ -NoNewline -Encoding Unicode
+        $regReplacement = "$($scoopdir -replace '\\','\\')\"
+        $newContent = [System.Text.RegularExpressions.Regex]::Replace(
+            $c, '[A-Z]:.*?\\\\scoop\\\\',
+            [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $regReplacement }
+        )
+        $unicodeEncoding = [System.Text.UnicodeEncoding]::new($false, $false)
+        [System.IO.File]::WriteAllText($_, $newContent, $unicodeEncoding)
     }
 
     # VSCode context menu — use direct path, no dependency on scoop being on PATH
@@ -246,7 +256,11 @@ function Invoke-Activate {
                 if (-not $ext -or $textExts -notcontains $ext.ToLowerInvariant()) { continue }
                 $c = Get-Content $file -Raw -ErrorAction SilentlyContinue
                 if ($c -and $c -match $oldPattern) {
-                    $c -replace $oldPattern, $newPersist | Set-Content $file -NoNewline -Encoding utf8NoBOM
+                    $updated = [System.Text.RegularExpressions.Regex]::Replace(
+                        $c, $oldPattern,
+                        [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $newPersist }
+                    )
+                    [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
                 }
             }
         }

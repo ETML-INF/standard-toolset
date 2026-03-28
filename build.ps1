@@ -49,6 +49,7 @@ try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $appName = Split-Path $AppDir -Leaf
         $absDir  = (Resolve-Path $AppDir).ProviderPath
+        if (Test-Path -LiteralPath $DestZip) { Remove-Item -LiteralPath $DestZip -Force }
         $zip = [System.IO.Compression.ZipFile]::Open($DestZip, [System.IO.Compression.ZipArchiveMode]::Create)
         try {
             Get-ChildItem $AppDir -Recurse -File -Force |
@@ -142,7 +143,8 @@ try {
 
         $reused = $false
         if ($availVer) {
-            $key = "$($qualifiedName):$($availVer)"
+            # Use unqualified app name for packLibrary lookup to match stored keys ("<appName>:<version>")
+            $key = "$($appName):$($availVer)"
             if ($packLibrary.ContainsKey($key)) {
                 $entry    = $packLibrary[$key]
                 $destPack = "$packsDir\$($entry.pack)"
