@@ -41,6 +41,9 @@ runs:
           [System.IO.File]::WriteAllText($daemonJson, $json, [System.Text.UTF8Encoding]::new($false))
 
           Stop-Service docker -Force
+          # HNS holds stale Linux overlay networks from the previous Docker mode.
+          # Restarting it clears that state so Docker can create the Windows nat network.
+          Restart-Service hns
           Start-Sleep -Seconds 3
           try {
             Start-Service docker -ErrorAction Stop
