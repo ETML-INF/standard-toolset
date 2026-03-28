@@ -35,7 +35,7 @@ jobs:
       - name: Prepare base image
         shell: pwsh
         run: |
-          $img = "ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest"
+          $img = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/build-base:latest"
           docker pull $img
           if ($LASTEXITCODE -ne 0) {
             Write-Warning "Base image not in GHCR — building locally (first-run bootstrap)."
@@ -44,4 +44,6 @@ jobs:
 
       - name: Run build tests
         shell: pwsh
-        run: pwsh tests/Run-BuildTests.ps1 -BaseImage ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest
+        run: |
+          $img = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/build-base:latest"
+          pwsh tests/Run-BuildTests.ps1 -BaseImage $img

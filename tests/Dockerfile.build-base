@@ -31,11 +31,11 @@ RUN Set-ExecutionPolicy Bypass -Scope Process -Force; \
     Invoke-WebRequest https://github.com/git-for-windows/git/releases/download/v2.45.2.windows.1/MinGit-2.45.2-64-bit.zip \
         -OutFile $env:TEMP\mingit.zip -UseBasicParsing; \
     Expand-Archive $env:TEMP\mingit.zip -DestinationPath C:\mingit -Force; \
-    Remove-Item $env:TEMP\mingit.zip; \
+    Remove-Item $env:TEMP\mingit.zip -ErrorAction SilentlyContinue; \
     $env:PATH = 'C:\mingit\cmd;' + $env:PATH; \
     Invoke-WebRequest 'https://get.scoop.sh' -OutFile $env:TEMP\iscoop.ps1 -UseBasicParsing; \
     pwsh -NonInteractive -NoProfile -File $env:TEMP\iscoop.ps1; \
-    Remove-Item $env:TEMP\iscoop.ps1 -Force; \
+    Remove-Item $env:TEMP\iscoop.ps1 -Force -ErrorAction SilentlyContinue; \
     if (-not (Test-Path 'C:\toolset-repo\build\scoop\shims\scoop.cmd')) { throw 'Scoop install failed' }; \
     $env:PATH = 'C:\toolset-repo\build\scoop\shims;' + $env:PATH; \
     scoop bucket add main; \

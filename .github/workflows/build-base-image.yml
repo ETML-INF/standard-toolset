@@ -28,7 +28,7 @@ jobs:
       - name: Build and push
         shell: pwsh
         run: |
-          $image = "ghcr.io/${{ github.repository_owner }}/standard-toolset/build-base:latest"
+          $image = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/build-base:latest"
           docker build `
             --network nat `
             -f tests/Dockerfile.build-base `
