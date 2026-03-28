@@ -83,7 +83,9 @@ $manifestJson | ConvertTo-Json -Depth 5 | Set-Content "$DestinationPath\release-
 foreach ($app in $manifestJson.apps) {
     $packUrl = "$repoBase/download/v$Version/$($app.pack)"
     Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
-    Invoke-WebRequest $packUrl -OutFile "$verDir\$($app.pack)" -ErrorAction Stop
+    $iwrArgs = @{ Uri = $packUrl; OutFile = "$verDir\$($app.pack)"; ErrorAction = 'Stop' }
+    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+    Invoke-WebRequest @iwrArgs
     Copy-Item "$verDir\$($app.pack)" "$DestinationPath\$($app.pack)" -Force
     Write-Host " done" -ForegroundColor Green
 }
@@ -91,7 +93,9 @@ foreach ($app in $manifestJson.apps) {
 foreach ($scriptName in @("toolset.ps1", "setup.ps1")) {
     $scriptUrl = "$repoBase/download/v$Version/$scriptName"
     try {
-        Invoke-WebRequest $scriptUrl -OutFile "$verDir\$scriptName" -ErrorAction Stop
+        $iwrArgs = @{ Uri = $scriptUrl; OutFile = "$verDir\$scriptName"; ErrorAction = 'Stop' }
+        if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+        Invoke-WebRequest @iwrArgs
         Copy-Item "$verDir\$scriptName" "$DestinationPath\$scriptName" -Force
         Write-Host "$scriptName downloaded" -ForegroundColor Green
     } catch {

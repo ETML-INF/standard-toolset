@@ -94,9 +94,15 @@ pwsh tests/Run-BuildTests.ps1
 
 ## CI
 
-On every push/PR (`ci.yml`):
-- Toolkit tests run automatically
-- Build tests run automatically (pulls base image from GHCR)
+On every push/PR (`ci.yml`), two jobs run:
 
-The base image is rebuilt separately via `build-base-image.yml`
+1. **`test`** — runs the `validate-and-test` composite action:
+   - Validates `apps.json` (JSON schema check)
+   - Runs `Test-UpdateMode.ps1` (update-mode tests, no container)
+   - Switches Docker to Windows containers mode
+   - Runs `Run-ContainerTests.ps1` (toolkit tests in nanoserver container)
+
+2. **`build-tests`** (runs only if `test` passes) — pulls the base image from GHCR and runs `Run-BuildTests.ps1`.
+
+The base image (`build-base`) is rebuilt separately via `build-base-image.yml`
 (triggered manually or when `Dockerfile.build-base` changes).

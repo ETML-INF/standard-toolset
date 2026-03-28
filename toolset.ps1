@@ -306,8 +306,11 @@ function Invoke-Download {
         Write-Verbose "BITS unavailable for $label : $_ — falling back to Invoke-WebRequest"
     }
 
-    # Fallback: works in containers and environments without BITS
-    Invoke-WebRequest $Url -OutFile $OutFile -ErrorAction Stop
+    # Fallback: works in containers and environments without BITS.
+    # -UseBasicParsing bypasses the IE engine on Windows PS 5.1 (Server Core, fresh installs).
+    $iwrArgs = @{ Uri = $Url; OutFile = $OutFile; ErrorAction = 'Stop' }
+    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+    Invoke-WebRequest @iwrArgs
 }
 
 function Get-ReleaseManifest {

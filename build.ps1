@@ -140,7 +140,15 @@ try {
                 Write-Output "  Reusing $appName $availVer"
                 try {
                     Invoke-WebRequest $entry.url -OutFile $destPack -ErrorAction Stop
-                    $packResults[$appName] = [ordered]@{ name = $appName; version = $availVer; pack = $entry.pack }
+                    # Compute integrity metadata from the reused zip so Test-AppIntegrity
+                    # and pre-extracted pack validation work the same as for rebuilt packs.
+                    Add-Type -AssemblyName System.IO.Compression.FileSystem
+                    $zr = [System.IO.Compression.ZipFile]::OpenRead($destPack)
+                    try {
+                        $fc = $zr.Entries.Count
+                        $ts = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum
+                    } finally { $zr.Dispose() }
+                    $packResults[$appName] = [ordered]@{ name = $appName; version = $availVer; pack = $entry.pack; fileCount = $fc; totalSize = $ts }
                     $reusedCount++
                     $reused = $true
                 } catch {
