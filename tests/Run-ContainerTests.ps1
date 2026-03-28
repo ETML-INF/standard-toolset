@@ -13,15 +13,19 @@
     If 'desktop-windows' context is not available (Linux host, non-Docker-Desktop setup),
     the script falls back to the current default context and warns you.
 
-    The container base image is nanoserver-1909 (build 18363), compatible with any Windows
-    host build >= 18363 using standard process isolation (no Hyper-V required).
-    Override for CI: --build-arg BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-ltsc2022
+    The container base image defaults to mcr.microsoft.com/powershell:nanoserver-1909
+    (build 18363) for old Win10 dev machines — no argument needed.
+    CI and Win11/Server 2022 devs should pass -BaseImage with the ltsc2022 image
+    (or the GHCR-cached test-base:latest).
 
 .PARAMETER NoCleanup
     Keep the toolset-test image after the run (useful for debugging).
 
 .PARAMETER BaseImage
-    Override the container base image (default: mcr.microsoft.com/powershell:nanoserver-1909).
+    Override the container base image.
+    Default: mcr.microsoft.com/powershell:nanoserver-1909 (build 18363, for old Win10 dev machines).
+    CI and Win11/Server 2022 devs should pass: mcr.microsoft.com/powershell:nanoserver-ltsc2022
+    (or the GHCR-cached equivalent ghcr.io/etml-inf/standard-toolset/test-base:latest).
 #>
 param(
     [switch]$NoCleanup,

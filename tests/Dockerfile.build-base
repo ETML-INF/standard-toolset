@@ -11,9 +11,12 @@ WORKDIR C:/toolset-repo
 # NanoServer containers need two workarounds for scoop:
 #  1. robocopy.exe is absent — a thin xcopy wrapper is written to C:\tools (base64
 #     encoded to avoid Dockerfile quoting issues; C:\Windows\System32 is read-only).
-#  2. The scoop installer exits non-zero when it tries to persist PATH to the User
-#     registry hive (absent in containers). Running the installer as a child process
-#     isolates that exit, and we verify success by checking the shim directory.
+#  2. The scoop installer and every 'scoop install' emit InvalidOperation errors from
+#     system.ps1 ($EnvRegisterKey.GetValue...) because HKCU\Environment does not exist
+#     in nanoserver — the User registry hive is absent. These errors are harmless: scoop
+#     installs apps correctly; PATH is set via the Docker ENV layer, not the registry.
+#     The installer itself is run as a child process (pwsh -File) so its non-zero exit
+#     is isolated; we verify success by checking the shim directory.
 #
 # Rebuild and push when scoop or pre-installed apps need updating:
 #   pwsh tests/Build-BaseImage.ps1 -Push

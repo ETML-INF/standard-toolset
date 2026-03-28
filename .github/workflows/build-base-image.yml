@@ -28,7 +28,8 @@ jobs:
       - name: Build and push
         shell: pwsh
         run: |
-          $image = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/build-base:latest"
+          $owner = "${{ github.repository_owner }}".ToLower()
+          $image = "ghcr.io/$owner/standard-toolset/build-base:latest"
           docker build `
             --network nat `
             -f tests/Dockerfile.build-base `
@@ -36,3 +37,10 @@ jobs:
             .
           docker push $image
           Write-Host "Pushed: $image" -ForegroundColor Green
+
+          # Also push test-base: a plain re-tag of powershell:nanoserver-ltsc2022 so the
+          # test job pulls from GHCR instead of MCR on every CI run (~250 MB saved).
+          $testBase = "ghcr.io/$owner/standard-toolset/test-base:latest"
+          docker tag mcr.microsoft.com/powershell:nanoserver-ltsc2022 $testBase
+          docker push $testBase
+          Write-Host "Pushed: $testBase" -ForegroundColor Green
