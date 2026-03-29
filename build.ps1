@@ -86,12 +86,26 @@ try {
     # packUrl fix: a reused pack in a prior release already carries a packUrl pointing to
     # the release where it was originally built.  We must use that URL rather than
     # constructing "v<thatRelease>/<pack>" — the zip was never uploaded to every release.
-    $repoBase   = "https://github.com/ETML-INF/standard-toolset/releases"
+    # Derive repo slug and base URL — avoids hardcoding so forks work without modification.
+    # GitHub Actions sets GITHUB_REPOSITORY automatically; locally we parse the git remote.
+    $repoSlug = if ($env:GITHUB_REPOSITORY) {
+        $env:GITHUB_REPOSITORY
+    } else {
+        $remote = git remote get-url origin 2>$null
+        if ($remote -match 'github\.com[:/](.+?)(?:\.git)?$') { $Matches[1] } else { $null }
+    }
+    $repoBase = if ($repoSlug) {
+        "https://github.com/$repoSlug/releases"
+    } else {
+        Write-Warning "Could not determine GitHub repo — pack library disabled."
+        $null
+    }
     $packLibrary = @{}      # "appName:version" → {pack, url}
     $prevVersion = $null    # version of current-latest, stored as previousVersion in new manifest
     $maxHops     = 10
 
     try {
+        if (-not $repoBase) { throw "No GitHub repo URL — skipping pack library." }
         Write-Output "Building pack library from release chain..."
 
         # Determine start URL: skip the release being built in CI to avoid a 404
@@ -122,7 +136,7 @@ try {
         $manifestUrl = if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
             $null   # already seeded above; skip URL chain
         } elseif ($currentTag) {
-            $prevTag = gh release list --limit 10 --json tagName 2>$null |
+            $prevTag = gh release list --repo $repoSlug --limit 10 --json tagName 2>$null |
                 ConvertFrom-Json |
                 Where-Object { $_.tagName -ne $currentTag } |
                 Select-Object -First 1 -ExpandProperty tagName

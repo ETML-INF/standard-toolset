@@ -52,6 +52,7 @@ jobs:
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
              & .\build.ps1 apps.json
 
