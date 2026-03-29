@@ -11,7 +11,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write # needed if using builtin secrets.GITHUB_TOKEN
+  issues: write    # needed if using builtin secrets.GITHUB_TOKEN
+  packages: read   # pull cached images from GHCR
 
 
 jobs:
