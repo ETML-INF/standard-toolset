@@ -1,193 +1,62 @@
+<#
+.SYNOPSIS
+    Bootstrap installer for ETML-INF standard toolset.
+    Downloads toolset.ps1 from GitHub (or L:\toolset as fallback) and runs it.
+
+.PARAMETER Destination
+    Target install path passed to toolset.ps1 (default: C:\inf-toolset).
+
+.PARAMETER NoInteraction
+    Suppress all prompts (passed through to toolset.ps1).
+#>
 param(
-    [Parameter(Mandatory=$false,HelpMessage="Try to find a local toolset.zip to install from in current directory (not recursive)")][bool]$Local=$false,
-    [Parameter(Mandatory=$false,HelpMessage="Path to a toolset.zip file OR a directory where toolset.zip has already been extracted (to accelerate deployment)" )][string]$Source=$null,
-    [Parameter(Mandatory=$false,HelpMessage="Target custom folder where to install toolset (usefull for deployments...) [inf-toolset subfolder will be created in it]")][string]$Destination=$null,
-    [Parameter(Mandatory=$false, HelpMessage="Disable user ability to chose folder")][bool]$Nointeraction=$true,
-    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
+    [string]$Destination = "C:\inf-toolset",
+    [switch]$NoInteraction
 )
-#Use functions to avoid having utils functions at beginning...
-function Main{
-    # Start transcript for logging (parallel-safe with unique filename)
-    if (-not $ConsoleOutput) {
-        $logFile = "$PSScriptRoot\setup-$PID.log"
-        Start-Transcript -Path $logFile -Append -Force
-    }
-    
-    try {
-	Set-StrictMode -Version Latest
 
-	# Title
-	Write-Host "+--------------------------------+" -ForegroundColor Cyan
-	Write-Host "|" -ForegroundColor Cyan -NoNewline
-	Write-Host "   ETML-INF STANDARD TOOLSET    " -ForegroundColor White -NoNewline
-	Write-Host "|" -ForegroundColor Cyan
-	Write-Host "+--------------------------------+" -ForegroundColor Cyan
+Set-StrictMode -Version Latest
 
-	# Handles local args
-	if($Local -or $Source)
-	{
-	    if([string]::IsNullOrEmpty($Source))
-	    {
-		Write-Output "Looking for a toolset*.zip file in current directory..."
-		$existingfile = Get-ChildItem -Path ".\toolset*.zip" | Select-Object -First 1
-		$localarchivepath = if ($existingfile) { $existingfile.FullName } else { $null }
-	    }
-	    else{
-		Write-Output "Using given $Source as source"
-		$localarchivepath=$Source
-	    }
-	    
-	    if(![string]::IsNullOrEmpty($localarchivepath))
-	    {
-		$archivepath = $localarchivepath
-		Write-Host "Found local $archivepath"
-	    }
-	    else{
-		Write-Error "No local archive found, aborting local install"
-		Exit 2
-	    }
-	}
-	# Download archive
-	else{
-	    Write-Output "About to download toolset..."
-	    $url="https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.zip"
-	    $timestamp = Get-Date -format yyyy_MM_dd_H_mm_ss
-	    $archivename = "toolset-$timestamp"
-	    $archivepath = "$env:TEMP\$archivename.zip"
+$githubUrl      = "https://github.com/ETML-INF/standard-toolset/releases/latest/download/toolset.ps1"
+$lDriveFallback = "L:\toolset\toolset.ps1"
+$tmpToolset     = "$env:TEMP\toolset-bootstrap-$(Get-Random).ps1"
 
-	    if (-not (DownloadWithBits -Url $url -Destination $archivepath)) {
-		exit 1
-	    }
-	}
-	
-	# Extract
-	if(Test-Path -Path "$archivepath" -PathType Container)
-	{
-	    $archivedirectory=$archivepath
-	    if(-not ((Test-Path -Path "$archivepath\version.txt") -and (Test-Path -Path "$archivepath\scoop\apps\scoop\current\bin\scoop.ps1")))
-	    {
-		Write-Error "$archivedirectory seems invalid, please check, aborting install!"
-		Exit 3
-	    }
-	}
-	else{
-	    # $env:TEMP may bring "path too long issue..."
-	    $archivedirectory = "$env:USERPROFILE\ets$(Get-Random)"
-	    Write-Output "About to extract $archivepath to $archivedirectory"
-	    Expand-Archive $archivepath $archivedirectory
-	}
-	# Compress-Archive excludes (hard coded) .git directories.. they have been renamed before zipping, they need to be adjusted!
-	Get-ChildItem -Path $archivedirectory -Recurse -Directory -Force -Filter ".git-force" | Rename-Item -NewName ".git"
+Write-Host "+--------------------------------+" -ForegroundColor Cyan
+Write-Host "|   ETML-INF STANDARD TOOLSET    |" -ForegroundColor White
+Write-Host "+--------------------------------+" -ForegroundColor Cyan
+Write-Host ""
 
-	# Install
-	Write-Output "About to launch install script"
-	Set-Location $archivedirectory
-	& .\install.ps1 -Destination "$Destination" -Nointeraction $Nointeraction
+$downloaded = $false
+try {
+    Write-Host "Downloading toolset.ps1 from GitHub..." -ForegroundColor Yellow
+    # Additive TLS 1.2 flag — the -bor 3072 pattern (3072 = Tls12) is the scoop/choco proven
+    # approach: works on .NET 2.0+, doesn't remove TLS 1.3, no enum dependency.
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    (New-Object System.Net.WebClient).DownloadFile($githubUrl, $tmpToolset)
+    $downloaded = $true
+    Write-Host "Downloaded from GitHub." -ForegroundColor Green
+} catch {
+    Write-Warning "GitHub unavailable: $_"
+}
 
-	# Cleaning up
-	Write-Output "Trying to clean up some stuff"
-	try {
-	    Remove-Item -Force -Recurse "$archivedirectory/scoop"
-	    Remove-Item -Force -Recurse "$archivedirectory"    
-	}
-	catch {
-	    Write-Warning "Unable to clean $archivedirectory : $_. "
-	}
-
-	
-	if(!$local)
-	{
-	    Remove-Item $archivepath
-	}
-	
-    }
-    catch {
-	Write-Error "Something went wrong: $_. Please contact the maintainer for more info..."
-	Write-Host "Items still available: $archivepath, $archivedirectory"
-    } finally {
-        if (-not $ConsoleOutput) {
-            Stop-Transcript
-        }
+if (-not $downloaded) {
+    if (Test-Path $lDriveFallback) {
+        Write-Host "Using L:\toolset\toolset.ps1 (offline fallback)." -ForegroundColor Yellow
+        Copy-Item $lDriveFallback $tmpToolset
+        $downloaded = $true
     }
 }
 
-function DownloadWithBits {
-    param(
-        [string]$Url,
-        [string]$Destination,
-        [int]$TimeoutMinutes = 75,
-        [int]$AvWaitSeconds = 5 #av=antivirus
-    )
-    
-    # Function has its own parameters, but can still access script-level variables if needed
-    # For example: $DestinationPath is still accessible here (though not needed in this case)
-    
-    try {
-        Import-Module BitsTransfer -ErrorAction Stop
-        Write-Output "Downloading $Url to $Destination..."
-        
-        $job = Start-BitsTransfer -Source $Url -Destination $Destination -Asynchronous -DisplayName "Inf Toolset Download"
-        
-        $timeout = (Get-Date).AddMinutes($TimeoutMinutes)
-        do {
-            Start-Sleep -Seconds 3
-            $progress = Get-BitsTransfer -JobId $job.JobId
-            
-            if ($progress.BytesTransferred -gt 0) {
-                $percent = [math]::Round(($progress.BytesTransferred / $progress.BytesTotal) * 100, 1)
-                $mbTransferred = [math]::Round($progress.BytesTransferred / 1MB, 1)
-                $mbTotal = [math]::Round($progress.BytesTotal / 1MB, 1)
-		
-		$progressText = "Progress: $percent% ($mbTransferred MB / $mbTotal MB)"
-		#`r move cursor at the beginning of the line
-                if ($ConsoleOutput) { Write-Host ("`r" + " " * 120 + "`r" + $progressText) -NoNewline }
-            }
-            
-            if ((Get-Date) -gt $timeout) {
-                Write-Host ""
-                Remove-BitsTransfer -BitsJob $job
-                throw "Download timeout after $TimeoutMinutes minutes"
-            }
-            
-        } while ($progress.JobState -eq "Transferring" -or $progress.JobState -eq "Connecting" -or $progress.JobState -eq "TransientError")
-        
-        if ($progress.JobState -eq "Transferred") {
-            if ($ConsoleOutput) { Write-Host "" }
-            Complete-BitsTransfer -BitsJob $job
-            Write-Output "✓ Download completed successfully"
-            
-            if ($AvWaitSeconds -gt 0) {
-                Write-Output "Waiting for file stabilization...(av scan...)"
-                Start-Sleep -Seconds 2
-                
-                $lastSize = 0; $elapsed = 0
-                do {
-                    Start-Sleep -Seconds 1; $elapsed++
-                    try { 
-                        $currentSize = (Get-Item $Destination).Length 
-                        if ($currentSize -gt 0 -and $currentSize -eq $lastSize) { 
-                            break 
-                        }
-                        $lastSize = $currentSize
-                    } catch { }
-                    if ($elapsed -ge $AvWaitSeconds) { 
-                        Write-Output "File stabilized (timeout after $AvWaitSeconds seconds)"
-                        break 
-                    }
-                } while ($true)
-            }
-            
-            return $true
-        } else {
-            if ($ConsoleOutput) { Write-Host "" }
-            Remove-BitsTransfer -BitsJob $job
-            throw "Download failed: $($progress.JobState) - $($progress.ErrorDescription)"
-        }
-        
-    } catch {
-        Write-Warning "BITS download failed: $($_.Exception.Message)"
-        return $false
-    }
+if (-not $downloaded) {
+    Write-Error "Cannot reach GitHub and L:\toolset is not available. Please connect to the network or the internal drive and try again."
+    exit 1
 }
 
-Main
+$shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
+
+try {
+    # toolset.ps1 already falls back to L:\toolset automatically when GitHub is unreachable,
+    # so no -PackSource is needed here for the standard offline scenario.
+    & $shell -File $tmpToolset update -Path $Destination -NoInteraction:$NoInteraction
+} finally {
+    Remove-Item $tmpToolset -Force -ErrorAction SilentlyContinue
+}

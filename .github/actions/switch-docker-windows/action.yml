@@ -1,0 +1,57 @@
+name: Switch to Windows containers
+description: >
+  Switches Docker to Windows containers mode.
+  Uses DockerCli.exe on Docker Desktop (local dev) or merges the storage-driver
+  key into the existing daemon.json on Docker Engine (GitHub Actions runners).
+
+runs:
+  using: composite
+  steps:
+    - name: Switch to Windows containers
+      shell: pwsh
+      run: |
+        # Skip if already in Windows containers mode (idempotent on re-runs).
+        $info = docker info 2>&1
+        if ($info -match "OSType: windows") {
+          Write-Host "Docker already in Windows containers mode — skipping switch."
+          exit 0
+        }
+
+        $dockerCli = "$env:ProgramFiles\Docker\Docker\DockerCli.exe"
+        if (Test-Path $dockerCli) {
+          # Docker Desktop (local dev) — explicit daemon switch
+          & $dockerCli -SwitchDaemon
+        } else {
+          # Docker Engine (GitHub Actions) — write a Windows-mode daemon.json.
+          # We keep only the 'hosts' binding from the existing file (needed for
+          # the Docker client to connect) and drop Linux-specific keys (storage,
+          # bridge, network-mode, etc.) that conflict with Windows container mode.
+          $daemonJson = "$env:ProgramData\docker\config\daemon.json"
+          Write-Host "Original daemon.json: $(if (Test-Path $daemonJson) { Get-Content $daemonJson -Raw } else { '<missing>' })"
+
+          $hosts = $null
+          if (Test-Path $daemonJson) {
+            $orig = Get-Content $daemonJson -Raw | ConvertFrom-Json
+            $hosts = $orig.PSObject.Properties['hosts']?.Value
+          }
+          $cfg = [ordered]@{ 'storage-driver' = 'windowsfilter' }
+          if ($hosts) { $cfg['hosts'] = $hosts }
+          $json = $cfg | ConvertTo-Json -Compress
+          Write-Host "New daemon.json: $json"
+          [System.IO.File]::WriteAllText($daemonJson, $json, [System.Text.UTF8Encoding]::new($false))
+
+          Stop-Service docker -Force
+          # HNS holds stale Linux overlay networks from the previous Docker mode.
+          # Restarting it clears that state so Docker can create the Windows nat network.
+          Restart-Service hns
+          Start-Sleep -Seconds 3
+          try {
+            Start-Service docker -ErrorAction Stop
+          } catch {
+            Write-Error "Docker failed to start. Event log:`n$(Get-EventLog Application -Source '*docker*' -Newest 5 -ErrorAction SilentlyContinue | ForEach-Object { $_.Message } | Out-String)"
+            throw
+          }
+        }
+        $deadline = (Get-Date).AddSeconds(60)
+        do { Start-Sleep -Seconds 3; $info = docker info 2>&1 } while ((Get-Date) -lt $deadline -and ($info -notmatch "OSType: windows"))
+        if ($info -notmatch "OSType: windows") { throw "Docker is not in Windows containers mode`n$info" }

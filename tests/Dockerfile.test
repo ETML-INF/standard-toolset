@@ -1,0 +1,10 @@
+# Default base image: nanoserver-1909 (build 18363) — compatible with old Win10 dev machines.
+# No argument needed for local dev on Win10. Process isolation requires an EXACT OS build match.
+# CI (windows-2022, build 20348) and Win11/Server 2022 devs must override:
+#   -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022  (or GHCR test-base:latest)
+# The validate-and-test CI action always passes -BaseImage explicitly.
+ARG BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-1909
+FROM ${BASE_IMAGE}
+WORKDIR C:/toolset-repo
+COPY . .
+ENTRYPOINT ["pwsh", "-File", "tests/Invoke-ContainerTests.ps1"]

@@ -1,0 +1,46 @@
+name: Build base test image
+
+on:
+  workflow_dispatch:        # manual trigger — rebuild on demand
+  push:
+    branches: [main]
+    paths:
+      - tests/Dockerfile.build-base   # auto-rebuild when the base definition changes
+
+# Runner pin: windows-2022 (OS build 20348 = ltsc2022, required for process-isolation containers).
+# Update all three workflow files together if this ever needs to change.
+
+jobs:
+  build-and-push:
+    runs-on: windows-2022
+
+    permissions:
+      packages: write       # required to push to GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/switch-docker-windows
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build and push
+        shell: pwsh
+        run: |
+          $owner = "${{ github.repository_owner }}".ToLower()
+          $image = "ghcr.io/$owner/standard-toolset/build-base:latest"
+          docker build `
+            --network nat `
+            -f tests/Dockerfile.build-base `
+            -t $image `
+            .
+          docker push $image
+          Write-Host "Pushed: $image" -ForegroundColor Green
+
+          # Also push test-base: a plain re-tag of powershell:nanoserver-ltsc2022 so the
+          # test job pulls from GHCR instead of MCR on every CI run (~250 MB saved).
+          $testBase = "ghcr.io/$owner/standard-toolset/test-base:latest"
+          docker tag mcr.microsoft.com/powershell:nanoserver-ltsc2022 $testBase
+          docker push $testBase
+          Write-Host "Pushed: $testBase" -ForegroundColor Green

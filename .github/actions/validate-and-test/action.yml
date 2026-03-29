@@ -1,0 +1,38 @@
+name: Validate and Test
+description: >
+  Validates apps.json, runs update-mode tests, switches Docker to Windows containers,
+  and runs the toolkit container test suite. All tests in one place so container
+  issues are caught by the same job that validates config.
+
+runs:
+  using: composite
+  steps:
+    - name: Validate apps.json
+      shell: pwsh
+      run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
+
+    - name: Run update mode tests
+      shell: pwsh
+      run: pwsh tests/Test-UpdateMode.ps1
+
+    - uses: ./.github/actions/switch-docker-windows
+
+    # Pull test-base from GHCR (re-tagged powershell:nanoserver-ltsc2022, zero MCR traffic).
+    # Falls back to MCR on first run (before build-base-image.yml has pushed it).
+    - name: Pull test base image
+      shell: pwsh
+      run: |
+        $img = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/test-base:latest"
+        docker pull $img
+        if ($LASTEXITCODE -ne 0) {
+          Write-Warning "test-base not in GHCR yet — pulling from MCR (first-run bootstrap)."
+          $img = "mcr.microsoft.com/powershell:nanoserver-ltsc2022"
+          docker pull $img
+        }
+        "TEST_BASE_IMAGE=$img" | Out-File $env:GITHUB_ENV -Append
+
+    # nanoserver:ltsc2022 is pre-cached on windows-2022 runners (zero pull time).
+    # Runner OS build = 20348, container build = 20348 → process isolation guaranteed.
+    - name: Run toolkit container tests
+      shell: pwsh
+      run: pwsh tests/Run-ContainerTests.ps1 -BaseImage $env:TEST_BASE_IMAGE

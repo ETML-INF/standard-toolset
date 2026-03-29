@@ -1,0 +1,50 @@
+# Default base image: nanoserver-1909 (build 18363) for old Win10 dev machines.
+# Process isolation requires an EXACT OS build match between host and container.
+# CI (windows-2022, build 20348) overrides this via Build-BaseImage.ps1 -BaseImage.
+ARG BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-1909
+FROM ${BASE_IMAGE}
+
+SHELL ["pwsh", "-Command"]
+
+WORKDIR C:/toolset-repo
+
+# NanoServer containers need two workarounds for scoop:
+#  1. robocopy.exe is absent — a thin xcopy wrapper is written to C:\tools (base64
+#     encoded to avoid Dockerfile quoting issues; C:\Windows\System32 is read-only).
+#  2. The scoop installer and every 'scoop install' emit InvalidOperation errors from
+#     system.ps1 ($EnvRegisterKey.GetValue...) because HKCU\Environment does not exist
+#     in nanoserver — the User registry hive is absent. These errors are harmless: scoop
+#     installs apps correctly; PATH is set via the Docker ENV layer, not the registry.
+#     The installer itself is run as a child process (pwsh -File) so its non-zero exit
+#     is isolated; we verify success by checking the shim directory.
+#
+# Rebuild and push when scoop or pre-installed apps need updating:
+#   pwsh tests/Build-BaseImage.ps1 -Push
+
+ENV SCOOP="C:\\toolset-repo\\build\\scoop"
+
+# Single layer: create robocopy stub → download MinGit → install scoop (child process)
+# → verify shims → add buckets → install test app → clean up.
+# Note: C:\ root is read-only in nanoserver — use $env:TEMP for all temp files.
+RUN Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+    New-Item -ItemType Directory -Force C:\tools | Out-Null; \
+    $env:PATH = 'C:\tools;C:\Program Files\PowerShell;C:\Windows\System32;' + $env:PATH; \
+    [System.IO.File]::WriteAllBytes('C:\tools\robocopy.cmd', [System.Convert]::FromBase64String('QGVjaG8gb2ZmDQppZiAiJX4xIj09IiIgZXhpdCAvYiAwDQppZiAiJX4yIj09IiIgZXhpdCAvYiAwDQp4Y29weSAiJX4xXCoiICIlfjJcIiAvRSAvSSAvWSAvUSAvSCAvUiA+bnVsIDI+JjENCmV4aXQgL2IgMA0K')); \
+    Invoke-WebRequest https://github.com/git-for-windows/git/releases/download/v2.45.2.windows.1/MinGit-2.45.2-64-bit.zip \
+        -OutFile $env:TEMP\mingit.zip -UseBasicParsing; \
+    Expand-Archive $env:TEMP\mingit.zip -DestinationPath C:\mingit -Force; \
+    Remove-Item $env:TEMP\mingit.zip -ErrorAction SilentlyContinue; \
+    $env:PATH = 'C:\mingit\cmd;' + $env:PATH; \
+    Invoke-WebRequest 'https://get.scoop.sh' -OutFile $env:TEMP\iscoop.ps1 -UseBasicParsing; \
+    pwsh -NonInteractive -NoProfile -File $env:TEMP\iscoop.ps1; \
+    Remove-Item $env:TEMP\iscoop.ps1 -Force -ErrorAction SilentlyContinue; \
+    if (-not (Test-Path 'C:\toolset-repo\build\scoop\shims\scoop.cmd')) { throw 'Scoop install failed' }; \
+    $env:PATH = 'C:\toolset-repo\build\scoop\shims;' + $env:PATH; \
+    scoop bucket add main; \
+    scoop bucket add extras; \
+    scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket; \
+    scoop install jq; \
+    scoop cache rm *
+
+ENV PATH="C:\\toolset-repo\\build\\scoop\\shims;C:\\mingit\\cmd;C:\\tools;C:\\Windows\\System32;C:\\Program Files\\PowerShell"

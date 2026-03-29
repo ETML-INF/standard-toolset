@@ -1,11 +1,12 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 name: release-please
 
 on:
   push:
     branches:
       - main
+
+# Runner pin: windows-2022 (OS build 20348 = ltsc2022, required for process-isolation containers).
+# Update all three workflow files together if this ever needs to change.
 
 permissions:
   contents: write
@@ -15,7 +16,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -24,9 +25,7 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Validates apps.json
-        shell: pwsh
-        run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
+      - uses: ./.github/actions/validate-and-test
 
       - name: Restore Scoop cache
         if: steps.release.outputs.release_created
@@ -38,9 +37,11 @@ jobs:
                               scoop-cache-
 
       # WARNING: scoop is added to the path only in that step
-      - name: Build apps (local install)
+      - name: Build apps and generate packs
         if: steps.release.outputs.release_created
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.tag_name }}
         run: |
              & .\build.ps1 apps.json
 
@@ -51,11 +52,16 @@ jobs:
         id: cache-hash
         shell: pwsh
         run: |
-             build\scoop\shims\scoop list | Select-Object Name, Version > hash.txt 2>$null
-             Get-Content hash.txt 
+             # Stable format: explicit Name=Version strings, sorted — immune to scoop output column changes.
+             build\scoop\shims\scoop list |
+                 Where-Object { $_ -is [PSCustomObject] -and $_.Name -and $_.Version } |
+                 Sort-Object Name |
+                 ForEach-Object { "$($_.Name)=$($_.Version)" } |
+                 Set-Content hash.txt
+             Get-Content hash.txt
              $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
-             echo "hash=$hash" >> $env:GITHUB_OUTPUT
-             mv hash.txt versions.txt
+             "hash=$hash" | Add-Content $env:GITHUB_OUTPUT
+             Move-Item hash.txt versions.txt
              
       # Save cache with new hash
       - name: Save Scoop cache
@@ -65,31 +71,20 @@ jobs:
                 path: build\scoop\cache
                 key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
 
-      - name: Add install scripts,readme,licence and version to build
-        if: steps.release.outputs.release_created
-        shell: pwsh
-        run: |
-             cp install.ps1 build
-             cp activate.ps1 build
-             cp README.md build
-             cp LICENSE build
-             echo ${{steps.release.outputs.tag_name}} > build/VERSION.txt
-
-      # WARNING: use full path to scoop as PATH var has died in previous step
-      # .git is renamed because of Compress-Archive builtin exclusion of .git and to avoid external dep on tar.exe or other...
-      - name: Compress archive (cleaning cache and moving .git to .git-force)
-        if: steps.release.outputs.release_created
-        shell: pwsh
-        run: |
-             build\scoop\shims\scoop cache rm *
-             Get-ChildItem -Path "build" -Recurse -Directory -Force -Filter ".git" | Rename-Item -NewName ".git-force"
-             Compress-Archive build/* toolset.zip
-
-      - name: Upload archive
-        if: ${{steps.release.outputs.release_created}}
+      - name: Upload packs and scripts
+        if: ${{ steps.release.outputs.release_created }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         run: |
-          gh release upload ${{ steps.release.outputs.tag_name }} toolset.zip
-          gh release upload ${{ steps.release.outputs.tag_name }} versions.txt
+             $tag = "${{ steps.release.outputs.tag_name }}"
+             gh release upload $tag build\packs\release-manifest.json --clobber
+             Get-ChildItem "build\packs\*.zip" | ForEach-Object {
+                 gh release upload $tag $_.FullName --clobber
+             }
+             gh release upload $tag toolset.ps1 --clobber
+             gh release upload $tag setup.ps1 --clobber
+             # versions.txt is produced by the existing 'Generate cache hash' step
+             # (which does: scoop list > hash.txt; Move-Item hash.txt versions.txt)
+             gh release upload $tag versions.txt --clobber
 

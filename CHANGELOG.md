@@ -1,5 +1,72 @@
 # Changelog
 
+## [1.13.1](https://github.com/philippe-hjik/standard-toolset/compare/v1.13.0...v1.13.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* **apps:** added nodejs-lts back ([da5e5d2](https://github.com/philippe-hjik/standard-toolset/commit/da5e5d25b8f21a526931ec6943efce726512429c))
+* **git:** add safe directory only if git exist and don't install git ([0817384](https://github.com/philippe-hjik/standard-toolset/commit/0817384dfc626605b19ca1ddc1ec450fd82f096c))
+* **nodejs-lts:** fixing path problem from CIDD ([51a0120](https://github.com/philippe-hjik/standard-toolset/commit/51a0120a64fcbc38f7e77789deb8b7a25c6916a7))
+
+## [1.13.0](https://github.com/philippe-hjik/standard-toolset/compare/v1.12.2...v1.13.0) (2026-02-11)
+
+
+### Miscellaneous Chores
+
+* release 1.13.0 ([9a741d4](https://github.com/philippe-hjik/standard-toolset/commit/9a741d462de88ad6de9417a1fcaa304d20333483))
+
+## [1.12.2](https://github.com/philippe-hjik/standard-toolset/compare/v1.12.1...v1.12.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* **gitconfig:** replace file by cmd line ([a01dccf](https://github.com/philippe-hjik/standard-toolset/commit/a01dccfd8a92b90e2968fdfae05042f4917f0af4))
+
+
+### Miscellaneous Chores
+
+* release 1.12.2 ([d2c7d49](https://github.com/philippe-hjik/standard-toolset/commit/d2c7d49d76ef194d17a8107a8ebb48bdc8009cbf))
+
+## [1.12.1](https://github.com/philippe-hjik/standard-toolset/compare/v1.12.0...v1.12.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* **app:** remove nodejs from list ([682c1ba](https://github.com/philippe-hjik/standard-toolset/commit/682c1baeee131bd28a67045f361986b7291524b0))
+
+## [1.12.0](https://github.com/philippe-hjik/standard-toolset/compare/v1.11.1...v1.12.0) (2026-02-06)
+
+
+### Features
+
+* **activate:** add gitconfig script for user ([597bf77](https://github.com/philippe-hjik/standard-toolset/commit/597bf7702d5223a7626d093b2cf12d324339db6d))
+* **activate:** install nodejs-lts in activate.ps1 ([3245601](https://github.com/philippe-hjik/standard-toolset/commit/3245601e8455a7225a9d053c6c05dc33f4fb3efc))
+* **apps:** add mqttx ([8f57789](https://github.com/philippe-hjik/standard-toolset/commit/8f57789949e3aa9577f2a349779222279c9725c9))
+
+## [1.11.1](https://github.com/philippe-hjik/standard-toolset/compare/v1.11.0...v1.11.1) (2026-02-05)
+
+
+### Miscellaneous Chores
+
+* release 1.11.1 ([d210650](https://github.com/philippe-hjik/standard-toolset/commit/d2106508939ec67b95afc3f0a8de5ca51df13efa))
+
+## [1.11.0](https://github.com/philippe-hjik/standard-toolset/compare/v1.10.0...v1.11.0) (2026-02-05)
+
+
+### Features
+
+* **apps.json:** add a new app ([b6b88a5](https://github.com/philippe-hjik/standard-toolset/commit/b6b88a5768da21cf59b7f3d75de710c0bbdc6558))
+* **apps.json:** add new apps ([8534140](https://github.com/philippe-hjik/standard-toolset/commit/853414033588eb8b63516685b9ad0a6ce96ce7c2))
+* **apps:** add laragon ([5939f19](https://github.com/philippe-hjik/standard-toolset/commit/5939f19fe8b42093468efdacbc56240317f7c8c8))
+* **apps:** add python3 asked by MMN (devops cicd) ([e1e1e30](https://github.com/philippe-hjik/standard-toolset/commit/e1e1e30481d14d668a308c97889c366a35e60994))
+
+
+### Bug Fixes
+
+* **apps.json:** add new app ([508b282](https://github.com/philippe-hjik/standard-toolset/commit/508b282c2a7646a6c7fdf3e19c0ce60c63511f8b))
+* **readme:** ajout du backslash manquant après la lettre de lecteur ([5fe2796](https://github.com/philippe-hjik/standard-toolset/commit/5fe2796676725208a2aaab3f44bcc20748eda256))
+
 ## [1.10.0](https://github.com/ETML-INF/standard-toolset/compare/v1.9.0...v1.10.0) (2025-12-03)
 
 

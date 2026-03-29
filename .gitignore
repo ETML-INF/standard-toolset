@@ -2,3 +2,6 @@
 *~
 /#*#
 /test.ps1
+.env
+.secrets
+.vars
