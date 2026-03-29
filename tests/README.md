@@ -81,6 +81,7 @@ pwsh tests/Run-BuildTests.ps1
 | [B2] Manifest schema | version, previousVersion, built, apps fields               |
 | [B3] Zip structure   | Root dir is `<appName>\`, contains `current\manifest.json` |
 | [B4] Skip reinstall  | Second run reuses existing scoop install                   |
+| [B5] packUrl reuse   | Reused pack gets `packUrl` in manifest; no zip re-uploaded |
 
 ## Helper scripts
 

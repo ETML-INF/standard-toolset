@@ -7,11 +7,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 $repoRoot = "C:\toolset-repo"
 $pass = 0; $fail = 0
+$failedAssertions = [System.Collections.Generic.List[string]]::new()
 
 function Assert {
     param([string]$Name, $Cond, [string]$Detail="")
-    if ($Cond) { Write-Host "  PASS: $Name" -ForegroundColor Green; $script:pass++ }
-    else       { Write-Host "  FAIL: $Name $Detail" -ForegroundColor Red; $script:fail++ }
+    if ($Cond) { $script:pass++ }
+    else       { Write-Host "  FAIL: $Name $Detail" -ForegroundColor Red; $script:fail++; $script:failedAssertions.Add($Name) }
 }
 
 # Test apps.json — jq is pre-installed in the base image (lightweight, reliable)
@@ -64,6 +65,39 @@ if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
 $out = pwsh -File "$repoRoot\build.ps1" $testAppsJson 2>&1
 Assert "[B4] skip message shown"   ($out -match "already at")
 Assert "[B4] manifest regenerated" (Test-Path "$buildPacks\release-manifest.json")
+
+Write-Host "[B5] packUrl reuse — reused pack gets packUrl, no zip re-uploaded" -ForegroundColor Cyan
+# Simulates the CI race condition fix: RELEASE_VERSION is set (CI mode) but instead of
+# calling gh release list we inject a fake previous manifest via -PreviousManifestUrl.
+# The fake manifest claims jq at its current version — build.ps1 should reuse it,
+# write packUrl into the new manifest, and NOT produce a jq zip in build\packs\.
+$jqApp = (Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json).apps |
+    Where-Object { $_.name -eq "jq" } | Select-Object -First 1
+$fakePackUrl = "https://fake-cdn.example.com/releases/download/v98.0.0/$($jqApp.pack)"
+$fakePrevManifest = @{
+    version  = "98.0.0"
+    apps     = @(@{ name = $jqApp.name; version = $jqApp.version; pack = $jqApp.pack })
+} | ConvertTo-Json -Depth 5
+$fakePrevManifestPath = "C:\tmp\b5-prev-manifest.json"
+Set-Content $fakePrevManifestPath $fakePrevManifest -Encoding UTF8
+$fakePrevManifestUrl = "file:///$($fakePrevManifestPath.Replace('\','/'))"
+
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$env:RELEASE_VERSION = "test-99.0.1"
+$out5 = pwsh -File "$repoRoot\build.ps1" $testAppsJson `
+    -PreviousManifestUrl $fakePrevManifestUrl 2>&1
+$ec5 = $LASTEXITCODE
+$m5  = if (Test-Path "$buildPacks\release-manifest.json") {
+    Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json
+} else { $null }
+$jqEntry5   = if ($m5) { $m5.apps | Where-Object { $_.name -eq "jq" } | Select-Object -First 1 } else { $null }
+$jqZipCount = @(Get-ChildItem "$buildPacks\jq-*.zip" -EA SilentlyContinue).Count
+Assert "[B5] exit 0"                     ($ec5 -eq 0)
+Assert "[B5] reuse message shown"        ($out5 -match "Reusing jq")
+Assert "[B5] jq has packUrl in manifest" ($jqEntry5 -and $jqEntry5.PSObject.Properties['packUrl'] -and $jqEntry5.packUrl)
+Assert "[B5] packUrl points to origin"   ($jqEntry5 -and $jqEntry5.packUrl -eq $fakePackUrl)
+Assert "[B5] no jq zip in packs dir"     ($jqZipCount -eq 0)
+Remove-Item $fakePrevManifestPath -Force -ErrorAction SilentlyContinue
 
 # Cleanup
 Remove-Item $testAppsJson -Force -ErrorAction SilentlyContinue

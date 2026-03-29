@@ -1,7 +1,11 @@
 param(
     [Parameter(Mandatory=$false,HelpMessage="Path to json file containing app definitions")]
     [string]$appJson = "apps.json",
-    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true
+    [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true,
+    # Override the starting URL for the pack library chain — used by tests to inject a
+    # local fake manifest (file:// URI) without needing live GitHub releases.
+    # In production this is left empty and the URL is derived from RELEASE_VERSION / latest.
+    [Parameter(Mandatory=$false)][string]$PreviousManifestUrl = ""
 )
 
 # Start transcript for logging (parallel-safe with unique filename)
@@ -69,9 +73,19 @@ try {
     # together. We follow the chain using direct download URLs (no GitHub API token
     # needed, no rate-limit concerns). Pack download URLs are constructed the same way.
     #
-    # Chain: latest/download/release-manifest.json
+    # Starting URL: when RELEASE_VERSION is set (CI context), release-please has already
+    # created the new GitHub Release tag before this script runs — so "latest" now points
+    # to the release being built (no assets yet) and returns 404.  We skip it by finding
+    # the most recent *previous* release via "gh release list".  Locally (no RELEASE_VERSION)
+    # we fall back to the plain latest URL so the script stays usable without gh auth.
+    #
+    # Chain: v<previousRelease>/release-manifest.json
     #          → releases/download/v<previousVersion>/release-manifest.json
     #          → ...  (up to $maxHops releases back)
+    #
+    # packUrl fix: a reused pack in a prior release already carries a packUrl pointing to
+    # the release where it was originally built.  We must use that URL rather than
+    # constructing "v<thatRelease>/<pack>" — the zip was never uploaded to every release.
     $repoBase   = "https://github.com/ETML-INF/standard-toolset/releases"
     $packLibrary = @{}      # "appName:version" → {pack, url}
     $prevVersion = $null    # version of current-latest, stored as previousVersion in new manifest
@@ -79,7 +93,23 @@ try {
 
     try {
         Write-Output "Building pack library from release chain..."
-        $manifestUrl = "$repoBase/latest/download/release-manifest.json"
+
+        # Determine start URL: skip the release being built in CI to avoid a 404
+        # (release-please creates the tag before assets exist).
+        # Priority: explicit -PreviousManifestUrl (tests) → gh release list (CI) → latest (local)
+        $currentTag  = $env:RELEASE_VERSION   # e.g. "v2.1.0", empty outside CI
+        $manifestUrl = if (-not [string]::IsNullOrEmpty($PreviousManifestUrl)) {
+            $PreviousManifestUrl
+        } elseif ($currentTag) {
+            $prevTag = gh release list --limit 10 --json tagName 2>$null |
+                ConvertFrom-Json |
+                Where-Object { $_.tagName -ne $currentTag } |
+                Select-Object -First 1 -ExpandProperty tagName
+            if ($prevTag) { "$repoBase/download/$prevTag/release-manifest.json" } else { $null }
+        } else {
+            "$repoBase/latest/download/release-manifest.json"
+        }
+
         $hop = 0
         while ($manifestUrl -and $hop -lt $maxHops) {
             try {
@@ -88,11 +118,20 @@ try {
                 foreach ($a in $m.apps) {
                     $key = "$($a.name):$($a.version)"
                     if ($packLibrary.ContainsKey($key)) { continue }  # newer release already has it
+                    # Carry the authoritative download URL forward:
+                    # - If this entry already has packUrl, it was reused from an older release and
+                    #   was never uploaded to $m.version — use packUrl as-is.
+                    # - Otherwise the pack was built for $m.version — construct the URL from that tag.
                     # fileCount/totalSize are carried forward so reused packs keep integrity
                     # metadata without needing to download the zip just to read its directory.
+                    $packUrl = if ($a.PSObject.Properties['packUrl'] -and $a.packUrl) {
+                        $a.packUrl
+                    } else {
+                        "$repoBase/download/v$($m.version)/$($a.pack)"
+                    }
                     $packLibrary[$key] = @{
                         pack      = $a.pack
-                        url       = "$repoBase/download/v$($m.version)/$($a.pack)"
+                        url       = $packUrl
                         fileCount = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
                         totalSize = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
                     }
