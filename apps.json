@@ -23,11 +23,6 @@
     "tags":"db,project"
   },
   {
-    "//comment":"deprecated, use dbeaver if possible",
-    "name":"mysql-workbench",
-    "tags":"db"
-  },
-  {
     "name":"windows-terminal",
     "tags":"devops,cmd",
     "paths2DropToEnableMultiUser":[".portable","settings"]
@@ -76,7 +71,7 @@
      "tags":"dev"
   },
   {
-	 "name":"python3",
+	 "name":"python314",
 	 "tags":"devops"
   },
   {
