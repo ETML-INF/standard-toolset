@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.0](https://github.com/ETML-INF/standard-toolset/compare/v2.0.1...v2.1.0) (2026-03-29)
+
+
+### Features
+
+* **delta update:** also use smart delta for build/release process ([62512bf](https://github.com/ETML-INF/standard-toolset/commit/62512bfa477fdac56ad4e3cc9edac1998df1c89b))
+
+
+### Bug Fixes
+
+* **mysqlworkbench:** remove as msi installer ([f45af86](https://github.com/ETML-INF/standard-toolset/commit/f45af86bb792ede2cf96f85d6f91e198c45ead76))
+* **python:** use valid version ([f45af86](https://github.com/ETML-INF/standard-toolset/commit/f45af86bb792ede2cf96f85d6f91e198c45ead76))
+
 ## [2.0.1](https://github.com/ETML-INF/standard-toolset/compare/v2.0.0...v2.0.1) (2026-03-29)
 
 
