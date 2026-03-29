@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/ETML-INF/standard-toolset/compare/v2.0.0...v2.0.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* **deploy:** improve feedback on missmatch version between network and github ([078b0ed](https://github.com/ETML-INF/standard-toolset/commit/078b0edd37da73dcdd7f46872b64fea91a26621d))
+
 ## [2.0.0](https://github.com/ETML-INF/standard-toolset/compare/v1.10.0...v2.0.0) (2026-03-29)
 
 
