@@ -2,10 +2,10 @@ param(
     [Parameter(Mandatory=$false,HelpMessage="Path to json file containing app definitions")]
     [string]$appJson = "apps.json",
     [Parameter(Mandatory=$false)][bool]$ConsoleOutput = $true,
-    # Override the starting URL for the pack library chain — used by tests to inject a
-    # local fake manifest (file:// URI) without needing live GitHub releases.
-    # In production this is left empty and the URL is derived from RELEASE_VERSION / latest.
-    [Parameter(Mandatory=$false)][string]$PreviousManifestUrl = ""
+    # Filesystem path to a fake "previous release" manifest — used by tests to exercise
+    # pack reuse without needing live GitHub releases.  Read with Get-Content, bypassing
+    # the URL chain entirely.  Leave empty in production.
+    [Parameter(Mandatory=$false)][string]$PreviousManifestPath = ""
 )
 
 # Start transcript for logging (parallel-safe with unique filename)
@@ -96,10 +96,31 @@ try {
 
         # Determine start URL: skip the release being built in CI to avoid a 404
         # (release-please creates the tag before assets exist).
-        # Priority: explicit -PreviousManifestUrl (tests) → gh release list (CI) → latest (local)
+        # Priority: explicit -PreviousManifestPath (tests) → gh release list (CI) → latest (local)
         $currentTag  = $env:RELEASE_VERSION   # e.g. "v2.1.0", empty outside CI
-        $manifestUrl = if (-not [string]::IsNullOrEmpty($PreviousManifestUrl)) {
-            $PreviousManifestUrl
+
+        # Test injection: seed the pack library from a local file, skip the URL chain.
+        if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
+            $m0 = Get-Content $PreviousManifestPath -Raw | ConvertFrom-Json
+            $prevVersion = $m0.version
+            foreach ($a in $m0.apps) {
+                $key = "$($a.name):$($a.version)"
+                if ($packLibrary.ContainsKey($key)) { continue }
+                $packUrl0 = if ($a.PSObject.Properties['packUrl'] -and $a.packUrl) { $a.packUrl } else {
+                    "$repoBase/download/v$($m0.version)/$($a.pack)"
+                }
+                $packLibrary[$key] = @{
+                    pack      = $a.pack
+                    url       = $packUrl0
+                    fileCount = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
+                    totalSize = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                }
+            }
+            Write-Output "Pack library: $($packLibrary.Count) entries (injected from $PreviousManifestPath)"
+        }
+
+        $manifestUrl = if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
+            $null   # already seeded above; skip URL chain
         } elseif ($currentTag) {
             $prevTag = gh release list --limit 10 --json tagName 2>$null |
                 ConvertFrom-Json |
