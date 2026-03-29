@@ -342,28 +342,69 @@ function Get-ReleaseManifest {
     param(
         [string]$ManifestSource,
         [string]$Version,
-        [string]$LDrivePath = "L:\toolset"
+        [string]$LDrivePath = "L:\toolset",
+        [bool]$NoInteraction = $false
     )
     if ($ManifestSource -and (Test-Path $ManifestSource)) {
         return Get-Content $ManifestSource -Raw | ConvertFrom-Json
     }
+
+    # Primary source is always L: (internal network drive) — fast, no auth, works offline from Internet.
+    # GitHub is a fallback for machines not on the school network (home use, external sites, etc.).
+    # Falling back silently to GitHub in non-interactive mode would surprise an admin who expects
+    # the internal version; requiring confirmation keeps the behaviour predictable and auditable.
     $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
-    if ([string]::IsNullOrEmpty($Version)) {
-        # Latest: GitHub first, L: fallback
-        try {
-            return Invoke-RestMethod "$repoBase/latest/download/release-manifest.json" -ErrorAction Stop
-        } catch { Write-Verbose "GitHub manifest fetch failed: $_" }
-        $lManifest = "$LDrivePath\release-manifest.json"
-        if (Test-Path $lManifest) { return Get-Content $lManifest -Raw | ConvertFrom-Json }
+    $lManifest = if ([string]::IsNullOrEmpty($Version)) {
+        "$LDrivePath\release-manifest.json"
     } else {
-        # Pinned version: L: first, GitHub fallback
-        $lManifest = "$LDrivePath\$Version\release-manifest.json"
-        if (Test-Path $lManifest) { return Get-Content $lManifest -Raw | ConvertFrom-Json }
-        try {
-            return Invoke-RestMethod "$repoBase/download/v$Version/release-manifest.json" -ErrorAction Stop
-        } catch { Write-Verbose "GitHub manifest for v$Version failed: $_" }
+        "$LDrivePath\$Version\release-manifest.json"
     }
-    throw "Cannot reach GitHub and L:\toolset is not available. Please connect to the network or the internal drive and try again."
+
+    if (Test-Path $lManifest) {
+        $manifest = Get-Content $lManifest -Raw | ConvertFrom-Json
+
+        # Non-blocking freshness check: compare the L: version against the latest on GitHub.
+        # Only done for the unversioned (latest) case — a pinned -Version is intentional
+        # and comparing it against latest would always warn by design.
+        # Uses a short timeout so a slow or unreachable GitHub never stalls the install.
+        # Any failure is silently swallowed: the L: manifest is authoritative, the check
+        # is advisory only.
+        if ([string]::IsNullOrEmpty($Version)) {
+            try {
+                $ghManifest = Invoke-RestMethod "$repoBase/latest/download/release-manifest.json" `
+                                  -TimeoutSec 5 -ErrorAction Stop
+                if ($ghManifest.version -ne $manifest.version) {
+                    Write-Warning "L:\toolset has v$($manifest.version) but GitHub has v$($ghManifest.version). Run offline-download.ps1 to refresh the network drive."
+                    if (-not $NoInteraction) {
+                        $answer = Read-Host "Use GitHub version v$($ghManifest.version) now instead? [Y/N]"
+                        if ($answer -match '^[Yy]$') { return $ghManifest }
+                    }
+                }
+            } catch { Write-Verbose "GitHub freshness check skipped: $_" }
+        }
+
+        return $manifest
+    }
+
+    # L: not available — decide whether to try GitHub
+    if ($NoInteraction) {
+        throw "L:\toolset is not available and -NoInteraction prevents falling back to GitHub. Mount the drive or pass -ManifestSource explicitly."
+    }
+    $answer = Read-Host "L:\toolset is not available. Download manifest from GitHub instead? [Y/N]"
+    if ($answer -notmatch '^[Yy]$') {
+        throw "Aborted by user. Mount L:\toolset or pass -ManifestSource explicitly."
+    }
+
+    $url = if ([string]::IsNullOrEmpty($Version)) {
+        "$repoBase/latest/download/release-manifest.json"
+    } else {
+        "$repoBase/download/v$Version/release-manifest.json"
+    }
+    try {
+        return Invoke-RestMethod $url -ErrorAction Stop
+    } catch {
+        throw "GitHub manifest fetch failed: $_"
+    }
 }
 
 function Get-LocalAppVersions {
@@ -614,7 +655,7 @@ if ($Command -eq "update") {
 
     Write-Host "Resolving manifest..." -ForegroundColor Yellow
     try {
-        $manifest = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version
+        $manifest = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version -NoInteraction ([bool]$NoInteraction)
     } catch {
         Write-Host $_ -ForegroundColor Red
         exit 1
@@ -713,7 +754,7 @@ if ($Command -eq "update") {
     $toolsetdir = $Path
     Write-Host "Resolving manifest..." -ForegroundColor Yellow
     try {
-        $manifest = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version
+        $manifest = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version -NoInteraction ([bool]$NoInteraction)
     } catch {
         Write-Host $_ -ForegroundColor Red
         exit 1
