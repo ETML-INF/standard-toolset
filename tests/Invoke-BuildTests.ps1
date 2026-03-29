@@ -70,4 +70,9 @@ Remove-Item $testAppsJson -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if ($fail -eq 0) { "Green" } else { "Red" })
-if ($fail -gt 0) { exit 1 }
+if ($fail -gt 0) {
+    Write-Host ""
+    Write-Host "Failed assertions:" -ForegroundColor Red
+    foreach ($f in $failedAssertions) { Write-Host "  - $f" -ForegroundColor Red }
+    exit 1
+}

@@ -436,23 +436,46 @@ Write-Host "[27] packUrl — pack fetched from explicit URL when absent from loc
 $d27 = "C:\tmp\s27d"; $ps27 = "C:\tmp\s27p"; $ps27b = "C:\tmp\s27pb"
 & $helper -OutputDir $ps27 -Apps @(@{Name="app1";Version="1.0.0"})
 New-Item -Force -ItemType Directory $ps27b | Out-Null
-# ps27b holds only the manifest — the zip is NOT copied there.
-# The manifest carries packUrl (file:// URI) pointing to the zip in ps27, mirroring what
-# build.ps1 writes for packs reused from a prior release: the zip stays at the original
-# release URL rather than being re-uploaded to each new release.
-# No -PackSource is passed so toolset skips the PackSource branch and reaches the packUrl path
-# (L: is unavailable in the container, so the file:// URI is the only valid source).
+# Serve the pack over localhost HTTP — file:// is not supported by Invoke-WebRequest in
+# Nano Server, so a minimal HttpListener is the lightest hermetic alternative.
+# The job creates its own listener (objects are not serialisable across job boundaries).
+$port27 = 18099
+$zip27  = "$ps27\app1-1.0.0.zip"
+$serverJob27 = Start-Job -ScriptBlock {
+    param([int]$port, [string]$zipPath)
+    $l = [System.Net.HttpListener]::new()
+    $l.Prefixes.Add("http://localhost:$port/")
+    $l.Start()
+    try {
+        $ctx   = $l.GetContext()
+        $bytes = [System.IO.File]::ReadAllBytes($zipPath)
+        $ctx.Response.ContentType        = 'application/zip'
+        $ctx.Response.ContentLength64    = $bytes.Length
+        $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+        $ctx.Response.Close()
+    } finally { $l.Stop() }
+} -ArgumentList $port27, $zip27
+Start-Sleep -Seconds 1   # let the listener bind before toolset connects
+# ps27b has the manifest but NOT the zip — toolset must follow packUrl
 $mf27 = Get-Content "$ps27\release-manifest.json" -Raw | ConvertFrom-Json
-$packUri27 = "file:///" + ("$ps27\app1-1.0.0.zip" -replace '\\', '/')
-$mf27.apps[0] | Add-Member -NotePropertyName packUrl -NotePropertyValue $packUri27 -Force
+$mf27.apps[0] | Add-Member -NotePropertyName packUrl `
+    -NotePropertyValue "http://localhost:$port27/app1-1.0.0.zip" -Force
 $mf27 | ConvertTo-Json -Depth 5 | Set-Content "$ps27b\release-manifest.json" -Encoding UTF8
 New-Item -Force -ItemType Directory $d27 | Out-Null
+# No -PackSource: L: is unavailable in the container → falls through to packUrl download
 pwsh -File $toolkit update -Path $d27 -ManifestSource "$ps27b\release-manifest.json" -NoInteraction
 $ec27 = $LASTEXITCODE
+Wait-Job $serverJob27 -Timeout 10 | Out-Null
+Remove-Job $serverJob27 -Force -ErrorAction SilentlyContinue
 Assert "[27] exit 0"         ($ec27 -eq 0)
 Assert "[27] app1 installed" (Test-Path "$d27\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d27, $ps27, $ps27b
 
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
-if ($fail -gt 0) { exit 1 }
+if ($fail -gt 0) {
+    Write-Host ""
+    Write-Host "Failed assertions:" -ForegroundColor Red
+    foreach ($f in $failedAssertions) { Write-Host "  - $f" -ForegroundColor Red }
+    exit 1
+}
