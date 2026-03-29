@@ -93,13 +93,8 @@ Remove-TestDir $d,$p
 
 Write-Host "[9] Activation — shim path replacement" -ForegroundColor Cyan
 $d9 = "C:\tmp\s9d"; $sd9 = "$d9\scoop"
-New-Item -Force -ItemType Directory "$sd9\apps\scoop\current\bin" | Out-Null
-Set-Content "$sd9\apps\scoop\current\bin\scoop.ps1" "# fake scoop stub" -Encoding UTF8
-New-Item -Force -ItemType Directory "$sd9\shims" | Out-Null
-$old9 = "D:\was-here\scoop\"
-Set-Content "$sd9\shims\scoop"     "$($old9)shims\scoop"     -Encoding UTF8
-Set-Content "$sd9\shims\scoop.cmd" "$($old9)shims\scoop.cmd" -Encoding UTF8
-Set-Content "$sd9\shims\scoop.ps1" "$($old9)shims\scoop.ps1" -Encoding UTF8
+New-FakeScoopStub -ScoopDir $sd9
+New-TestShims -ScoopDir $sd9 -OldBase "D:\was-here\scoop\"
 pwsh -File $toolkit -Path $d9 -NoInteraction
 $ec9 = $LASTEXITCODE
 Assert "[9] exit 0"              ($ec9 -eq 0)
@@ -109,13 +104,8 @@ Remove-TestDir $d9
 
 Write-Host "[10] Activation — reg file path replacement" -ForegroundColor Cyan
 $d10 = "C:\tmp\s10d"; $sd10 = "$d10\scoop"
-New-Item -Force -ItemType Directory "$sd10\apps\scoop\current\bin" | Out-Null
-Set-Content "$sd10\apps\scoop\current\bin\scoop.ps1" "# fake scoop stub" -Encoding UTF8
-New-Item -Force -ItemType Directory "$sd10\shims" | Out-Null
-$old10 = "D:\was-here\scoop\"
-Set-Content "$sd10\shims\scoop"     "$($old10)shims\scoop"     -Encoding UTF8
-Set-Content "$sd10\shims\scoop.cmd" "$($old10)shims\scoop.cmd" -Encoding UTF8
-Set-Content "$sd10\shims\scoop.ps1" "$($old10)shims\scoop.ps1" -Encoding UTF8
+New-FakeScoopStub -ScoopDir $sd10
+New-TestShims -ScoopDir $sd10 -OldBase "D:\was-here\scoop\"
 $regDir = "$sd10\apps\testapp\current"
 New-Item -Force -ItemType Directory $regDir | Out-Null
 Set-Content "$regDir\testapp.reg" "REGEDIT4`r`n`"Path`"=`"D:\\was-here\\scoop\\apps\\testapp`"" -Encoding UTF8
@@ -177,12 +167,8 @@ Remove-Item "C:\tmp\s11*.gitconfig" -Force -ErrorAction SilentlyContinue
 
 Write-Host "[12] Activation — paths2DropToEnableMultiUser cleanup" -ForegroundColor Cyan
 $d12 = "C:\tmp\s12d"; $sd12 = "$d12\scoop"
-New-Item -Force -ItemType Directory "$sd12\apps\scoop\current\bin" | Out-Null
-Set-Content "$sd12\apps\scoop\current\bin\scoop.ps1" "# fake scoop stub" -Encoding UTF8
-New-Item -Force -ItemType Directory "$sd12\shims" | Out-Null
-Set-Content "$sd12\shims\scoop"     "$sd12\shims\scoop"     -Encoding UTF8
-Set-Content "$sd12\shims\scoop.cmd" "$sd12\shims\scoop.cmd" -Encoding UTF8
-Set-Content "$sd12\shims\scoop.ps1" "$sd12\shims\scoop.ps1" -Encoding UTF8
+New-FakeScoopStub -ScoopDir $sd12
+New-TestShims -ScoopDir $sd12 -OldBase "$sd12\"
 # Manifest with MIXED apps: one has paths2DropToEnableMultiUser, one does NOT.
 # This is the production-realistic shape and exercises the PSObject.Properties guard
 # (without it, StrictMode throws PropertyNotFoundException on apps that lack the field).
@@ -351,9 +337,7 @@ Remove-TestDir $d21
 
 Write-Host "[22] Integrity — missing file triggers repair" -ForegroundColor Cyan
 $d22 = "C:\tmp\s22d"; $ps22 = "C:\tmp\s22p"
-& $helper -OutputDir $ps22 -Apps @(@{Name="app1";Version="1.0.0"})
-New-Item -Force -ItemType Directory $d22 | Out-Null
-pwsh -File $toolkit update -Path $d22 -ManifestSource "$ps22\release-manifest.json" -PackSource $ps22 -NoInteraction
+Install-FreshApp -PackDir $ps22 -InstallDir $d22
 # Corrupt install: remove manifest.json from current\ dir (that's where fake pack puts files)
 Remove-Item "$d22\scoop\apps\app1\current\manifest.json" -Force -ErrorAction SilentlyContinue
 # Re-run — integrity check should detect missing file and repair
@@ -365,9 +349,7 @@ Remove-TestDir $d22, $ps22
 
 Write-Host "[23] Integrity — size mismatch triggers repair" -ForegroundColor Cyan
 $d23 = "C:\tmp\s23d"; $ps23 = "C:\tmp\s23p"
-& $helper -OutputDir $ps23 -Apps @(@{Name="app1";Version="1.0.0"})
-New-Item -Force -ItemType Directory $d23 | Out-Null
-pwsh -File $toolkit update -Path $d23 -ManifestSource "$ps23\release-manifest.json" -PackSource $ps23 -NoInteraction
+Install-FreshApp -PackDir $ps23 -InstallDir $d23
 # Corrupt install: inject extra field via substring splice — must stay valid JSON so
 # Get-LocalAppVersions can read the version (repair, not re-install) and size mismatch is detected.
 $raw23 = (Get-Content "$d23\scoop\apps\app1\current\manifest.json" -Raw).TrimEnd()
@@ -384,9 +366,7 @@ Remove-TestDir $d23, $ps23
 
 Write-Host "[24] -ForceReinstall reinstalls up-to-date app" -ForegroundColor Cyan
 $d24 = "C:\tmp\s24d"; $ps24 = "C:\tmp\s24p"
-& $helper -OutputDir $ps24 -Apps @(@{Name="app1";Version="1.0.0"})
-New-Item -Force -ItemType Directory $d24 | Out-Null
-pwsh -File $toolkit update -Path $d24 -ManifestSource "$ps24\release-manifest.json" -PackSource $ps24 -NoInteraction
+Install-FreshApp -PackDir $ps24 -InstallDir $d24
 $out24 = pwsh -File $toolkit update -Path $d24 -ManifestSource "$ps24\release-manifest.json" -PackSource $ps24 -NoInteraction -ForceReinstall 2>&1
 $ec24 = $LASTEXITCODE
 Assert "[24] exit 0"                        ($ec24 -eq 0)
@@ -396,9 +376,7 @@ Remove-TestDir $d24, $ps24
 
 Write-Host "[25] Integrity pass — no download when healthy" -ForegroundColor Cyan
 $d25 = "C:\tmp\s25d"; $ps25 = "C:\tmp\s25p"
-& $helper -OutputDir $ps25 -Apps @(@{Name="app1";Version="1.0.0"})
-New-Item -Force -ItemType Directory $d25 | Out-Null
-pwsh -File $toolkit update -Path $d25 -ManifestSource "$ps25\release-manifest.json" -PackSource $ps25 -NoInteraction
+Install-FreshApp -PackDir $ps25 -InstallDir $d25
 # Delete the zip — if integrity passes, no download is attempted and update still succeeds
 Remove-Item "$ps25\app1-1.0.0.zip" -Force
 $out25 = pwsh -File $toolkit update -Path $d25 -ManifestSource "$ps25\release-manifest.json" -PackSource $ps25 -NoInteraction 2>&1
