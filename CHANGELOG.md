@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.0.0](https://github.com/ETML-INF/standard-toolset/compare/v1.10.0...v2.0.0) (2026-03-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* pack based install
+* v2
+
+### Features
+
+* **apps:** add laragon ([5939f19](https://github.com/ETML-INF/standard-toolset/commit/5939f19fe8b42093468efdacbc56240317f7c8c8))
+* **apps:** add python3 asked by MMN (devops cicd) ([e1e1e30](https://github.com/ETML-INF/standard-toolset/commit/e1e1e30481d14d668a308c97889c366a35e60994))
+* **cli:** basic cli for update / status ([0311703](https://github.com/ETML-INF/standard-toolset/commit/031170311b568d191417cd6dc10202dcf091d956))
+* pack based install ([07d913c](https://github.com/ETML-INF/standard-toolset/commit/07d913ca2955848d447b935f23d275c0c22c6e22))
+* v2 ([217fb78](https://github.com/ETML-INF/standard-toolset/commit/217fb78f3ff4cc88f83c6283130c27ad67a9b738))
+
+
+### Bug Fixes
+
+* **apps:** packer, spacesniffer, winmerge, laragon, mqttx ([0311703](https://github.com/ETML-INF/standard-toolset/commit/031170311b568d191417cd6dc10202dcf091d956))
+* **git:** set safe dir in gitconfig ([0311703](https://github.com/ETML-INF/standard-toolset/commit/031170311b568d191417cd6dc10202dcf091d956))
+* **npm:** hardcoded install path updated to local installed ([0311703](https://github.com/ETML-INF/standard-toolset/commit/031170311b568d191417cd6dc10202dcf091d956)), closes [#23](https://github.com/ETML-INF/standard-toolset/issues/23) [#24](https://github.com/ETML-INF/standard-toolset/issues/24) [#20](https://github.com/ETML-INF/standard-toolset/issues/20) [#17](https://github.com/ETML-INF/standard-toolset/issues/17) [#21](https://github.com/ETML-INF/standard-toolset/issues/21) [#27](https://github.com/ETML-INF/standard-toolset/issues/27) [#28](https://github.com/ETML-INF/standard-toolset/issues/28) [#29](https://github.com/ETML-INF/standard-toolset/issues/29) [#26](https://github.com/ETML-INF/standard-toolset/issues/26)
+* **readme:** ajout du backslash manquant après la lettre de lecteur ([5fe2796](https://github.com/ETML-INF/standard-toolset/commit/5fe2796676725208a2aaab3f44bcc20748eda256))
+* **tls:** avoid issues on tls github on base install ([73db8e6](https://github.com/ETML-INF/standard-toolset/commit/73db8e6b874154ed074b859fc3334ba2d730e18f))
+
 ## [1.13.1](https://github.com/philippe-hjik/standard-toolset/compare/v1.13.0...v1.13.1) (2026-02-12)
 
 
