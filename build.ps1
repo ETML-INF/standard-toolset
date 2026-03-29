@@ -105,7 +105,6 @@ try {
     $maxHops     = 10
 
     try {
-        if (-not $repoBase) { throw "No GitHub repo URL — skipping pack library." }
         Write-Output "Building pack library from release chain..."
 
         # Determine start URL: skip the release being built in CI to avoid a 404
@@ -113,16 +112,17 @@ try {
         # Priority: explicit -PreviousManifestPath (tests) → gh release list (CI) → latest (local)
         $currentTag  = $env:RELEASE_VERSION   # e.g. "v2.1.0", empty outside CI
 
-        # Test injection: seed the pack library from a local file, skip the URL chain.
+        # Test injection: seed the pack library from a local file, skip the URL chain entirely.
+        # This path requires no GitHub URL, so the repoBase guard below does not apply.
         if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
             $m0 = Get-Content $PreviousManifestPath -Raw | ConvertFrom-Json
             $prevVersion = $m0.version
             foreach ($a in $m0.apps) {
                 $key = "$($a.name):$($a.version)"
                 if ($packLibrary.ContainsKey($key)) { continue }
-                $packUrl0 = if ($a.PSObject.Properties['packUrl'] -and $a.packUrl) { $a.packUrl } else {
+                $packUrl0 = if ($a.PSObject.Properties['packUrl'] -and $a.packUrl) { $a.packUrl } elseif ($repoBase) {
                     "$repoBase/download/v$($m0.version)/$($a.pack)"
-                }
+                } else { $null }
                 $packLibrary[$key] = @{
                     pack      = $a.pack
                     url       = $packUrl0
@@ -135,6 +135,9 @@ try {
 
         $manifestUrl = if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
             $null   # already seeded above; skip URL chain
+        } elseif (-not $repoBase) {
+            Write-Warning "No GitHub repo URL — URL chain disabled, only injected entries available."
+            $null
         } elseif ($currentTag) {
             $prevTag = gh release list --repo $repoSlug --limit 10 --json tagName 2>$null |
                 ConvertFrom-Json |
