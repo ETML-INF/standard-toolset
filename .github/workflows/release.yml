@@ -42,7 +42,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
                 path: build\scoop\cache
-                key: scoop-cache-dummy # never used, only use restore-keys
+                # Key on apps.json content: exact hit when no app changed (zero downloads),
+                # prefix fallback when an app is added/updated (only new zips downloaded).
+                key: scoop-cache-${{ hashFiles('apps.json') }}
                 restore-keys: |
                               scoop-cache-
 
@@ -56,31 +58,22 @@ jobs:
         run: |
              & .\build.ps1 apps.json
 
-      # WARNING: use full path to scoop as PATH var has died in last step 
-      # Generate hash from installed packages
-      - name: Generate cache hash
+      - name: Generate versions.txt
         if: steps.release.outputs.release_created
-        id: cache-hash
         shell: pwsh
         run: |
-             # Stable format: explicit Name=Version strings, sorted — immune to scoop output column changes.
-             build\scoop\shims\scoop list |
-                 Where-Object { $_ -is [PSCustomObject] -and $_.Name -and $_.Version } |
-                 Sort-Object Name |
-                 ForEach-Object { "$($_.Name)=$($_.Version)" } |
-                 Set-Content hash.txt
-             Get-Content hash.txt
-             $hash = (Get-FileHash hash.txt -Algorithm SHA256).Hash.Substring(0, 8)
-             "hash=$hash" | Add-Content $env:GITHUB_OUTPUT
-             Move-Item hash.txt versions.txt
+             # versions.txt is the authoritative list of what is in this release — generated
+             # from the manifest (not scoop list) so reused packs are included correctly.
+             $m = Get-Content build\packs\release-manifest.json -Raw | ConvertFrom-Json
+             $m.apps | Sort-Object name | ForEach-Object { "$($_.name)=$($_.version)" } |
+                 Set-Content versions.txt
              
-      # Save cache with new hash
       - name: Save Scoop cache
         if: steps.release.outputs.release_created
         uses: actions/cache/save@v4
         with:
                 path: build\scoop\cache
-                key: scoop-cache-${{ steps.cache-hash.outputs.hash }}
+                key: scoop-cache-${{ hashFiles('apps.json') }}
 
       - name: Upload packs and scripts
         if: ${{ steps.release.outputs.release_created }}
@@ -95,7 +88,5 @@ jobs:
              }
              gh release upload $tag toolset.ps1 --clobber
              gh release upload $tag setup.ps1 --clobber
-             # versions.txt is produced by the existing 'Generate cache hash' step
-             # (which does: scoop list > hash.txt; Move-Item hash.txt versions.txt)
              gh release upload $tag versions.txt --clobber
 
