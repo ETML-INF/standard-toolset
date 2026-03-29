@@ -25,7 +25,17 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # Tests run HERE (not in ci.yml) for the release commit path.
+      # Why: ci.yml excludes CHANGELOG.md-only pushes (the release-please merge commit),
+      # so it is intentionally silent on release day. That means this is the sole test
+      # gate before artifacts are built and uploaded. If tests fail the job stops here
+      # and the subsequent build/upload steps never execute — the GitHub Release tag
+      # exists but has no assets, which is recoverable (re-run the job).
+      # Gated on release_created: for every non-release push to main, release-please
+      # just updates its PR and exits; running tests there would be pure duplication
+      # since ci.yml already ran them on that same commit.
       - uses: ./.github/actions/validate-and-test
+        if: steps.release.outputs.release_created
 
       - name: Restore Scoop cache
         if: steps.release.outputs.release_created

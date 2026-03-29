@@ -3,6 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    # CHANGELOG.md is the only file release-please touches when it merges its own
+    # release PR (chore(main): release x.y.z). No source changed → no point running
+    # tests. Without this exclusion, every release merge would fire both ci.yml AND
+    # release.yml, doubling validate-and-test for zero benefit.
+    # NOTE: if release-please is ever reconfigured to also bump a version file
+    # (e.g. version.txt), add it here too or CI will still trigger on release commits.
+    paths-ignore:
+      - 'CHANGELOG.md'
   pull_request:
     branches: [main]
 
