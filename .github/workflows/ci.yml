@@ -47,7 +47,10 @@ jobs:
           docker pull $img
           if ($LASTEXITCODE -ne 0) {
             Write-Warning "Base image not in GHCR — building locally (first-run bootstrap)."
-            pwsh tests/Build-BaseImage.ps1 -BaseImage mcr.microsoft.com/powershell:nanoserver-ltsc2022
+            # Use the GHCR-cached test-base (a re-tag of nanoserver-ltsc2022 pushed by
+            # build-base-image.yml) so the fallback build never needs to reach MCR directly.
+            $testBase = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/test-base:latest"
+            pwsh tests/Build-BaseImage.ps1 -BaseImage $testBase
           }
 
       - name: Run build tests
