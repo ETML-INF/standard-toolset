@@ -88,9 +88,13 @@ try {
                 foreach ($a in $m.apps) {
                     $key = "$($a.name):$($a.version)"
                     if ($packLibrary.ContainsKey($key)) { continue }  # newer release already has it
+                    # fileCount/totalSize are carried forward so reused packs keep integrity
+                    # metadata without needing to download the zip just to read its directory.
                     $packLibrary[$key] = @{
-                        pack = $a.pack
-                        url  = "$repoBase/download/v$($m.version)/$($a.pack)"
+                        pack      = $a.pack
+                        url       = "$repoBase/download/v$($m.version)/$($a.pack)"
+                        fileCount = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
+                        totalSize = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
                     }
                 }
                 $manifestUrl = if ($m.PSObject.Properties['previousVersion'] -and $m.previousVersion) {
@@ -146,25 +150,24 @@ try {
             # Use unqualified app name for packLibrary lookup to match stored keys ("<appName>:<version>")
             $key = "$($appName):$($availVer)"
             if ($packLibrary.ContainsKey($key)) {
-                $entry    = $packLibrary[$key]
-                $destPack = "$packsDir\$($entry.pack)"
-                Write-Output "  Reusing $appName $availVer"
-                try {
-                    Invoke-WebRequest $entry.url -OutFile $destPack -ErrorAction Stop
-                    # Compute integrity metadata from the reused zip so Test-AppIntegrity
-                    # and pre-extracted pack validation work the same as for rebuilt packs.
-                    Add-Type -AssemblyName System.IO.Compression.FileSystem
-                    $zr = [System.IO.Compression.ZipFile]::OpenRead($destPack)
-                    try {
-                        $fc = $zr.Entries.Count
-                        $ts = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum
-                    } finally { $zr.Dispose() }
-                    $packResults[$appName] = [ordered]@{ name = $appName; version = $availVer; pack = $entry.pack; fileCount = $fc; totalSize = $ts }
-                    $reusedCount++
-                    $reused = $true
-                } catch {
-                    Write-Warning "  Download failed for $appName, will rebuild: $_"
+                $entry = $packLibrary[$key]
+                Write-Output "  Reusing $appName $availVer (pack stays at $($entry.url))"
+                # Do NOT download the pack — it will not be re-uploaded to this release.
+                # toolset.ps1 resolves the pack via packUrl in the manifest, pointing directly
+                # to the release where it was originally built.  Re-downloading + re-uploading
+                # identical bytes to every new release was the original flaw: it wasted CI time,
+                # doubled GitHub storage, and made all releases look like full rebuilds.
+                $result = [ordered]@{
+                    name    = $appName
+                    version = $availVer
+                    pack    = $entry.pack
+                    packUrl = $entry.url   # explicit URL; toolset.ps1 uses this instead of <newVersion>/<pack>
                 }
+                if ($null -ne $entry.fileCount) { $result['fileCount'] = $entry.fileCount }
+                if ($null -ne $entry.totalSize)  { $result['totalSize'] = $entry.totalSize }
+                $packResults[$appName] = $result
+                $reusedCount++
+                $reused = $true
             }
         }
 

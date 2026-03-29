@@ -81,7 +81,14 @@ $manifestJson | ConvertTo-Json -Depth 5 | Set-Content "$verDir\release-manifest.
 $manifestJson | ConvertTo-Json -Depth 5 | Set-Content "$DestinationPath\release-manifest.json" -Encoding UTF8
 
 foreach ($app in $manifestJson.apps) {
-    $packUrl = "$repoBase/download/v$Version/$($app.pack)"
+    # Unchanged packs are not re-uploaded to each release — the manifest carries packUrl
+    # pointing to the release where the pack was originally built.  Fall back to the
+    # version-constructed URL only for packs that were actually built in this release.
+    $packUrl = if ($app.PSObject.Properties['packUrl'] -and $app.packUrl) {
+        $app.packUrl
+    } else {
+        "$repoBase/download/v$Version/$($app.pack)"
+    }
     Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
     $iwrArgs = @{ Uri = $packUrl; OutFile = "$verDir\$($app.pack)"; ErrorAction = 'Stop' }
     if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }

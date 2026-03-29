@@ -527,7 +527,17 @@ function Get-Pack {
     if (Test-Path $lPath) { return $lPath }
 
     $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
-    $url = if ($Version) { "$repoBase/download/v$Version/$packName" } else { "$repoBase/latest/download/$packName" }
+    # packUrl is written by build.ps1 for packs reused from a prior release — it points to the
+    # release where the pack was actually built rather than the current manifest version.
+    # Without this, every new release would have to re-upload all unchanged packs, and a client
+    # asking for v2.0.1/app-1.0.0.zip would 404 for any app that didn't change in that release.
+    $url = if ($App.PSObject.Properties['packUrl'] -and $App.packUrl) {
+        $App.packUrl
+    } elseif ($Version) {
+        "$repoBase/download/v$Version/$packName"
+    } else {
+        "$repoBase/latest/download/$packName"
+    }
     try {
         Invoke-Download -Url $url -OutFile $tmpFile -Description $packName
         return $tmpFile

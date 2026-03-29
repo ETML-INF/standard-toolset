@@ -432,6 +432,27 @@ Assert "[26] logs are separate files"      ($log26a -ne $log26b)
 Remove-TestDir $d26, $d26b, $ps26
 Remove-Item $log26a, $log26b -Force -ErrorAction SilentlyContinue
 
+Write-Host "[27] packUrl — pack fetched from explicit URL when absent from local source" -ForegroundColor Cyan
+$d27 = "C:\tmp\s27d"; $ps27 = "C:\tmp\s27p"; $ps27b = "C:\tmp\s27pb"
+& $helper -OutputDir $ps27 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $ps27b | Out-Null
+# ps27b holds only the manifest — the zip is NOT copied there.
+# The manifest carries packUrl (file:// URI) pointing to the zip in ps27, mirroring what
+# build.ps1 writes for packs reused from a prior release: the zip stays at the original
+# release URL rather than being re-uploaded to each new release.
+# No -PackSource is passed so toolset skips the PackSource branch and reaches the packUrl path
+# (L: is unavailable in the container, so the file:// URI is the only valid source).
+$mf27 = Get-Content "$ps27\release-manifest.json" -Raw | ConvertFrom-Json
+$packUri27 = "file:///" + ("$ps27\app1-1.0.0.zip" -replace '\\', '/')
+$mf27.apps[0] | Add-Member -NotePropertyName packUrl -NotePropertyValue $packUri27 -Force
+$mf27 | ConvertTo-Json -Depth 5 | Set-Content "$ps27b\release-manifest.json" -Encoding UTF8
+New-Item -Force -ItemType Directory $d27 | Out-Null
+pwsh -File $toolkit update -Path $d27 -ManifestSource "$ps27b\release-manifest.json" -NoInteraction
+$ec27 = $LASTEXITCODE
+Assert "[27] exit 0"         ($ec27 -eq 0)
+Assert "[27] app1 installed" (Test-Path "$d27\scoop\apps\app1\current\manifest.json")
+Remove-TestDir $d27, $ps27, $ps27b
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) { exit 1 }

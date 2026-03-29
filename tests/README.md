@@ -25,7 +25,7 @@ pwsh tests/Run-ToolsetTests.ps1
 | [3a] -Clean                                    | Orphaned app removed                       |
 | [3b] -NoInteraction                            | Orphaned app kept                          |
 | [4] Missing pack                               | Continues, non-fatal exit                  |
-| [5] No sources                                 | Exits non-zero when manifest unreachable   |
+| [5] No sources (non-interactive)               | Exits non-zero — L: unavailable, -NoInteraction blocks GitHub fallback |
 | [6] Status — updates pending                   | Exit 1, app shown in output                |
 | [7] Status — up to date                        | Exit 0                                     |
 | [8] Update with -Version                       | Pinned version installs correctly          |
@@ -35,6 +35,7 @@ pwsh tests/Run-ToolsetTests.ps1
 | [11b] gitconfig — no `[safe]`                  | Block prepended, existing config preserved |
 | [11c] gitconfig — `[safe]` without `directory` | Line inserted after `[safe]`               |
 | [11d] gitconfig — existing `directory`         | Old path replaced, no duplicate            |
+| [27] packUrl — pack at prior release URL       | Pack fetched via `packUrl` (file://) when absent from local source; mirrors build.ps1 reuse optimization |
 
 ## Build pipeline tests — `Run-BuildTests.ps1`
 
