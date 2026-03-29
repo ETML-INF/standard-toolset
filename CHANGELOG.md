@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/ETML-INF/standard-toolset/compare/v2.1.1...v2.1.2) (2026-03-29)
+
+
+### Bug Fixes
+
+* **build:** inject gh token for gh commands for smart pack/upload accross versions ([6d4ef51](https://github.com/ETML-INF/standard-toolset/commit/6d4ef51e5fac983a7dad1b91a8f055cac5f32eee))
+
 ## [2.1.1](https://github.com/ETML-INF/standard-toolset/compare/v2.1.0...v2.1.1) (2026-03-29)
 
 
