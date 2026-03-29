@@ -71,7 +71,8 @@
      "tags":"dev"
   },
   {
-	 "name":"python314",
+    "//comment":"python means python3 now (2026)",
+	 "name":"python",
 	 "tags":"devops"
   },
   {
