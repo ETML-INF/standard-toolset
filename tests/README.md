@@ -9,13 +9,13 @@ your PATH, registry, or scoop installation.
   (right-click tray icon → "Switch to Windows containers")
 - PowerShell 7+ (`pwsh`)
 
-## Toolkit tests — `Run-ContainerTests.ps1`
+## Toolset unit tests — `Run-ToolsetTests.ps1`
 
 Tests `toolset.ps1` update, status, and activation behaviour.
 Uses a minimal Nano Server image (~250 MB, no internet needed at run time).
 
 ```powershell
-pwsh tests/Run-ContainerTests.ps1
+pwsh tests/Run-ToolsetTests.ps1
 ```
 
 | Scenario                                       | What is tested                             |
@@ -87,9 +87,9 @@ pwsh tests/Run-BuildTests.ps1
 |-----------------------------|----------------------------------------------------|
 | `New-FakePack.ps1`          | Creates fake app zips + manifest for toolkit tests |
 | `Build-BaseImage.ps1`       | Builds and pushes the build-base image to GHCR     |
-| `Run-ContainerTests.ps1`    | Runs toolkit tests                                 |
+| `Run-ToolsetTests.ps1`    | Runs toolkit tests                                 |
 | `Run-BuildTests.ps1`        | Runs build pipeline tests                          |
-| `Invoke-ContainerTests.ps1` | Test scenarios (runs inside the container)         |
+| `Invoke-ToolsetTests.ps1` | Test scenarios (runs inside the container)         |
 | `Invoke-BuildTests.ps1`     | Build test scenarios (runs inside the container)   |
 
 ## CI
@@ -100,7 +100,7 @@ On every push/PR (`ci.yml`), two jobs run:
    - Validates `apps.json` (JSON schema check)
    - Runs `Test-UpdateMode.ps1` (update-mode tests, no container)
    - Switches Docker to Windows containers mode
-   - Runs `Run-ContainerTests.ps1` (toolkit tests in nanoserver container)
+   - Runs `Run-ToolsetTests.ps1` (toolset unit tests in nanoserver container)
 
 2. **`build-tests`** (runs only if `test` passes) — pulls the base image from GHCR and runs `Run-BuildTests.ps1`.
 

@@ -1,7 +1,7 @@
 name: Validate and Test
 description: >
   Validates apps.json, runs update-mode tests, switches Docker to Windows containers,
-  and runs the toolkit container test suite. All tests in one place so container
+  and runs the toolset unit test suite. All tests in one place so container
   issues are caught by the same job that validates config.
 
 runs:
@@ -33,6 +33,6 @@ runs:
 
     # nanoserver:ltsc2022 is pre-cached on windows-2022 runners (zero pull time).
     # Runner OS build = 20348, container build = 20348 → process isolation guaranteed.
-    - name: Run toolkit container tests
+    - name: Run toolset unit tests
       shell: pwsh
-      run: pwsh tests/Run-ContainerTests.ps1 -BaseImage $env:TEST_BASE_IMAGE
+      run: pwsh tests/Run-ToolsetTests.ps1 -BaseImage $env:TEST_BASE_IMAGE

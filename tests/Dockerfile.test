@@ -7,4 +7,4 @@ ARG BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-1909
 FROM ${BASE_IMAGE}
 WORKDIR C:/toolset-repo
 COPY . .
-ENTRYPOINT ["pwsh", "-File", "tests/Invoke-ContainerTests.ps1"]
+ENTRYPOINT ["pwsh", "-File", "tests/Invoke-ToolsetTests.ps1"]
