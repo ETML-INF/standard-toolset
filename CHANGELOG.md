@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/ETML-INF/standard-toolset/compare/v2.1.0...v2.1.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* **apps:** use standard python (which now is python3) ([a7f9f5c](https://github.com/ETML-INF/standard-toolset/commit/a7f9f5ccb1f5e13dd629662d67d6e2234ae76e41))
+
 ## [2.1.0](https://github.com/ETML-INF/standard-toolset/compare/v2.0.1...v2.1.0) (2026-03-29)
 
 
