@@ -39,19 +39,27 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       # Pull cached base image (scoop + buckets pre-installed).
-      # If not in GHCR yet (first run), build locally from nanoserver-ltsc2022.
+      # Fallback chain: build-base (GHCR) → test-base (GHCR) → MCR ltsc2022
+      # Each layer is only fetched if the previous one is unavailable.
       - name: Prepare base image
         shell: pwsh
         run: |
-          $img = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/build-base:latest"
-          docker pull $img
+          $owner     = "${{ github.repository_owner }}".ToLower()
+          $buildBase = "ghcr.io/$owner/standard-toolset/build-base:latest"
+          $testBase  = "ghcr.io/$owner/standard-toolset/test-base:latest"
+
+          docker pull $buildBase
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+
+          Write-Warning "build-base not in GHCR — building locally."
+          docker pull $testBase
           if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Base image not in GHCR — building locally (first-run bootstrap)."
-            # Use the GHCR-cached test-base (a re-tag of nanoserver-ltsc2022 pushed by
-            # build-base-image.yml) so the fallback build never needs to reach MCR directly.
-            $testBase = "ghcr.io/${{ github.repository_owner }}".ToLower() + "/standard-toolset/test-base:latest"
-            pwsh tests/Build-BaseImage.ps1 -BaseImage $testBase
+            Write-Warning "test-base not in GHCR — pulling from MCR (ltsc2022)."
+            docker pull mcr.microsoft.com/powershell:nanoserver-ltsc2022
+            if ($LASTEXITCODE -ne 0) { Write-Error "Cannot obtain base image from MCR"; exit 1 }
+            docker tag mcr.microsoft.com/powershell:nanoserver-ltsc2022 $testBase
           }
+          pwsh tests/Build-BaseImage.ps1 -BaseImage $testBase
 
       - name: Run build tests
         shell: pwsh

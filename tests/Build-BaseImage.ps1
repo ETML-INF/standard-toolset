@@ -34,8 +34,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$image    = "ghcr.io/etml-inf/standard-toolset/build-base:$Tag"
-$repoRoot = Split-Path $PSScriptRoot -Parent
+$image     = "ghcr.io/etml-inf/standard-toolset/build-base:$Tag"
+$testImage = "ghcr.io/etml-inf/standard-toolset/test-base:$Tag"
+$repoRoot  = Split-Path $PSScriptRoot -Parent
 
 # CI: mode already guaranteed — use default silently.
 # Desktop: prefer 'desktop-windows'; warn if absent so the developer knows to switch.
@@ -68,9 +69,18 @@ Write-Host "Base image built: $image" -ForegroundColor Green
 
 if ($Push) {
     Write-Host "Pushing to GHCR..." -ForegroundColor Yellow
+
+    # Push build-base
     docker @dockerArgs push $image
     if ($LASTEXITCODE -ne 0) { Write-Error "Push failed"; exit 1 }
     Write-Host "Pushed: $image" -ForegroundColor Green
+
+    # Push test-base — re-tag of the base OS image so CI avoids pulling from MCR
+    $srcBase = if ($BaseImage) { $BaseImage } else { "mcr.microsoft.com/powershell:nanoserver-1909" }
+    docker @dockerArgs tag $srcBase $testImage
+    docker @dockerArgs push $testImage
+    if ($LASTEXITCODE -ne 0) { Write-Error "Push of test-base failed"; exit 1 }
+    Write-Host "Pushed: $testImage" -ForegroundColor Green
 } else {
     Write-Host "Run with -Push to push to GHCR." -ForegroundColor Cyan
 }

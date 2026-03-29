@@ -32,6 +32,7 @@ jobs:
           $image = "ghcr.io/$owner/standard-toolset/build-base:latest"
           docker build `
             --network nat `
+            --build-arg BASE_IMAGE=mcr.microsoft.com/powershell:nanoserver-ltsc2022 `
             -f tests/Dockerfile.build-base `
             -t $image `
             .
