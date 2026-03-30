@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0](https://github.com/ETML-INF/standard-toolset/compare/v2.1.3...v2.2.0) (2026-03-30)
+
+
+### Features
+
+* **offline:** improve offline downloader ([e0e71ec](https://github.com/ETML-INF/standard-toolset/commit/e0e71ec54dfdc55dda9716f122ec9c2c7a3cc89b))
+* **private packs:** allow private packs ([f1ecbfa](https://github.com/ETML-INF/standard-toolset/commit/f1ecbfa6778f50f79a7e788a8c9697b9dec0b195))
+
+
+### Bug Fixes
+
+* **apps:** put back scoop as mandatory app pack ([e0e71ec](https://github.com/ETML-INF/standard-toolset/commit/e0e71ec54dfdc55dda9716f122ec9c2c7a3cc89b))
+* **packs:** include scoop ([f1ecbfa](https://github.com/ETML-INF/standard-toolset/commit/f1ecbfa6778f50f79a7e788a8c9697b9dec0b195))
+
 ## [2.1.3](https://github.com/ETML-INF/standard-toolset/compare/v2.1.2...v2.1.3) (2026-03-30)
 
 
