@@ -101,6 +101,18 @@ Assert "[B5] packUrl points to origin"   ($jqPackUrl5 -eq $fakePackUrl)
 Assert "[B5] no jq zip in packs dir"     ($jqZipCount -eq 0)
 Remove-Item $fakePrevManifestPath -Force -ErrorAction SilentlyContinue
 
+Write-Host "[B6] Source .ps1 files — ASCII-only (PS 5.1 compatible)" -ForegroundColor Cyan
+# PowerShell 5.1 reads UTF-8 files without BOM as ANSI (Windows-1252).
+# Any non-ASCII byte (em dash, box-drawing chars, arrows, etc.) causes parse errors.
+# All .ps1 files users download and run must be pure ASCII.
+foreach ($f in (Get-ChildItem "$repoRoot\*.ps1" -File)) {
+    $bytes    = [System.IO.File]::ReadAllBytes($f.FullName)
+    $badCount = @($bytes | Where-Object {
+        $_ -gt 0x7E -or ($_ -lt 0x20 -and $_ -ne 0x09 -and $_ -ne 0x0D -and $_ -ne 0x0A)
+    }).Count
+    Assert "[B6] $($f.Name) is ASCII-only" ($badCount -eq 0)
+}
+
 # Cleanup
 Remove-Item $testAppsJson -Force -ErrorAction SilentlyContinue
 

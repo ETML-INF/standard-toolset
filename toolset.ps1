@@ -16,7 +16,7 @@ if (-not [string]::IsNullOrEmpty($LogFile)) {
     Start-Transcript -Path $LogFile -Append -Force | Out-Null
 }
 
-# ── helpers ────────────────────────────────────────────────────────────────
+# -- helpers ----------------------------------------------------------------
 
 function Find-ToolsetDir {
     param([string]$StartPath, [bool]$NoInteraction)
@@ -74,7 +74,7 @@ function Invoke-NodeCheck {
             Write-Warning "Admin-installed Node.js at $nodePath. Uninstall it manually: winget uninstall --name 'Node.js'"
         }
     } elseif ($nodePath.StartsWith($toolsetdir)) {
-        # Expected — toolset-managed node, all good
+        # Expected  - toolset-managed node, all good
     } else {
         Write-Warning "Node.js found at unexpected location: $nodePath. This may conflict with the toolset."
     }
@@ -138,12 +138,12 @@ function Invoke-Activate {
         Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
         & $scoopPs1 reset *
     } else {
-        Write-Warning "scoop.ps1 not found at $scoopPs1 — skipping junction reset (will complete on next activation)"
+        Write-Warning "scoop.ps1 not found at $scoopPs1  - skipping junction reset (will complete on next activation)"
     }
 
     # Drop paths2DropToEnableMultiUser from each app's current\ dir so apps fall back to
     # per-user %APPDATA% instead of the shared portable-mode location.
-    # Scoop's persist creates junctions: app\current\<path> → scoop\persist\<app>\<path>.
+    # Scoop's persist creates junctions: app\current\<path> -> scoop\persist\<app>\<path>.
     # Deleting the junction leaves persist data intact but forces apps to use per-user dirs.
     Write-Host "Configuring per-user app settings..." -ForegroundColor Green
     $dropped = 0
@@ -159,7 +159,7 @@ function Invoke-Activate {
                 if (-not $item) { continue }
                 try {
                     if ($item.PSIsContainer) {
-                        # Directory junction — Delete() removes only the link, not persist contents
+                        # Directory junction  - Delete() removes only the link, not persist contents
                         [System.IO.Directory]::Delete($item.FullName)
                     } else {
                         Remove-Item $item.FullName -Force
@@ -173,7 +173,7 @@ function Invoke-Activate {
         }
         if ($dropped -eq 0) { Write-Host "  No portable mode triggers found." -ForegroundColor DarkGray }
     } else {
-        Write-Host "  No release manifest found — skipping portable path cleanup." -ForegroundColor DarkGray
+        Write-Host "  No release manifest found  - skipping portable path cleanup." -ForegroundColor DarkGray
     }
 
     Write-Host "Updating scoop shims for path $toolsetdir..." -ForegroundColor Green
@@ -199,7 +199,7 @@ function Invoke-Activate {
         [System.IO.File]::WriteAllText($_, $newContent, $unicodeEncoding)
     }
 
-    # VSCode context menu — use direct path, no dependency on scoop being on PATH
+    # VSCode context menu  - use direct path, no dependency on scoop being on PATH
     $vsCodeReg = "$scoopdir\apps\vscode\current\install-context.reg"
     if (Test-Path $vsCodeReg) {
         try {
@@ -210,7 +210,7 @@ function Invoke-Activate {
         }
     }
 
-    # Git safe.directory — inline logic, no external script dependency
+    # Git safe.directory  - inline logic, no external script dependency
     if (Get-Command git -ErrorAction SilentlyContinue) {
         Set-GitSafeDirectory -gitconfigPath "$env:USERPROFILE\.gitconfig" -toolsetdir $toolsetdir
         Write-Output "Git safe.directory configured"
@@ -239,7 +239,7 @@ function Invoke-Activate {
         }
         $newPersist = "$scoopdir\persist\nodejs-lts"  # where npm cache/prefix live at runtime
 
-        # Text-like extensions that may embed absolute paths — skip binaries for speed and safety
+        # Text-like extensions that may embed absolute paths  - skip binaries for speed and safety
         $textExts = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
 
         $scanRoots = @(
@@ -279,17 +279,17 @@ function Invoke-Activate {
         Write-Output "Shortcut created: $shortcutPath"
     }
 
-    # Grant all users full control — best effort (requires elevation; silent if unavailable)
+    # Grant all users full control  - best effort (requires elevation; silent if unavailable)
     Write-Host "Setting permissions for all users..." -ForegroundColor Green
     & icacls $toolsetdir /grant "Users:(OI)(CI)M" /T /C /Q 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Permissions set." -ForegroundColor Green
     } else {
-        Write-Verbose "icacls returned $LASTEXITCODE — run as administrator to set permissions"
+        Write-Verbose "icacls returned $LASTEXITCODE  - run as administrator to set permissions"
     }
 }
 
-# ── manifest + pack helpers (used by update mode) ─────────────────────────
+# -- manifest + pack helpers (used by update mode) -------------------------
 
 function Invoke-Download {
     param(
@@ -299,7 +299,7 @@ function Invoke-Download {
     )
     $label = if ($Description) { $Description } else { Split-Path $Url -Leaf }
 
-    # Try BITS first — resumable, progress display, handles large packs well.
+    # Try BITS first  - resumable, progress display, handles large packs well.
     # Falls through silently if BITS is unavailable (containers, PS remoting, etc.)
     try {
         Import-Module BitsTransfer -ErrorAction Stop
@@ -326,9 +326,9 @@ function Invoke-Download {
             return
         }
         Remove-BitsTransfer -BitsJob $job
-        throw "BITS ended in state: $($progress.JobState) — $($progress.ErrorDescription)"
+        throw "BITS ended in state: $($progress.JobState)  - $($progress.ErrorDescription)"
     } catch {
-        Write-Verbose "BITS unavailable for $label : $_ — falling back to Invoke-WebRequest"
+        Write-Verbose "BITS unavailable for $label : $_  - falling back to Invoke-WebRequest"
     }
 
     # Fallback: works in containers and environments without BITS.
@@ -349,7 +349,7 @@ function Get-ReleaseManifest {
         return Get-Content $ManifestSource -Raw | ConvertFrom-Json
     }
 
-    # Primary source is always L: (internal network drive) — fast, no auth, works offline from Internet.
+    # Primary source is always L: (internal network drive)  - fast, no auth, works offline from Internet.
     # GitHub is a fallback for machines not on the school network (home use, external sites, etc.).
     # Falling back silently to GitHub in non-interactive mode would surprise an admin who expects
     # the internal version; requiring confirmation keeps the behaviour predictable and auditable.
@@ -364,7 +364,7 @@ function Get-ReleaseManifest {
         $manifest = Get-Content $lManifest -Raw | ConvertFrom-Json
 
         # Non-blocking freshness check: compare the L: version against the latest on GitHub.
-        # Only done for the unversioned (latest) case — a pinned -Version is intentional
+        # Only done for the unversioned (latest) case  - a pinned -Version is intentional
         # and comparing it against latest would always warn by design.
         # Uses a short timeout so a slow or unreachable GitHub never stalls the install.
         # Any failure is silently swallowed: the L: manifest is authoritative, the check
@@ -386,7 +386,7 @@ function Get-ReleaseManifest {
         return $manifest
     }
 
-    # L: not available — decide whether to try GitHub
+    # L: not available  - decide whether to try GitHub
     if ($NoInteraction) {
         throw "L:\toolset is not available and -NoInteraction prevents falling back to GitHub. Mount the drive or pass -ManifestSource explicitly."
     }
@@ -415,7 +415,7 @@ function Get-LocalAppVersions {
     Get-ChildItem $appsDir -Directory | ForEach-Object {
         $appDir = $_.FullName
         # current\ is a junction created by "scoop reset *" during Invoke-Activate.
-        # On a freshly extracted toolset (L: copy, manual zip) it doesn't exist yet —
+        # On a freshly extracted toolset (L: copy, manual zip) it doesn't exist yet  -
         # fall back to the versioned subdirectory so update doesn't re-download everything.
         $mPath = "$appDir\current\manifest.json"
         if (-not (Test-Path $mPath)) {
@@ -433,7 +433,7 @@ function Get-LocalAppVersions {
 }
 
 function Get-ZipEntryCount {
-    # Reads only the zip central directory (metadata) — no extraction.
+    # Reads only the zip central directory (metadata)  - no extraction.
     # Returns count of file entries only (directory entries are excluded).
     param([string]$ZipPath)
     try {
@@ -488,7 +488,7 @@ function Get-Pack {
                 $parts = $check.Split(':')
                 $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
                 if ($NoInteraction) {
-                    $zipNote = if (Test-Path $local) { "Using zip." } else { "No zip found in PackSource — this app will be skipped." }
+                    $zipNote = if (Test-Path $local) { "Using zip." } else { "No zip found in PackSource  - this app will be skipped." }
                     Write-Warning "$msg $zipNote"
                 } else {
                     $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
@@ -496,7 +496,7 @@ function Get-Pack {
                 }
                 if (Test-Path $local) { return $local }
             } else {
-                Write-Warning "Pre-extracted $packDir version mismatch — falling back to zip"
+                Write-Warning "Pre-extracted $packDir version mismatch  - falling back to zip"
             }
         }
         if (Test-Path $local) { return $local }
@@ -513,7 +513,7 @@ function Get-Pack {
             $parts = $check.Split(':')
             $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
             if ($NoInteraction) {
-                $zipNote = if (Test-Path $lPath) { "Using zip." } else { "No zip found on L: — will attempt GitHub download." }
+                $zipNote = if (Test-Path $lPath) { "Using zip." } else { "No zip found on L:  - will attempt GitHub download." }
                 Write-Warning "$msg $zipNote"
             } else {
                 $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
@@ -521,13 +521,13 @@ function Get-Pack {
             }
             if (Test-Path $lPath) { return $lPath }
         } else {
-            Write-Warning "Pre-extracted $packDir version mismatch — falling back to zip"
+            Write-Warning "Pre-extracted $packDir version mismatch  - falling back to zip"
         }
     }
     if (Test-Path $lPath) { return $lPath }
 
     $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
-    # packUrl is written by build.ps1 for packs reused from a prior release — it points to the
+    # packUrl is written by build.ps1 for packs reused from a prior release  - it points to the
     # release where the pack was actually built rather than the current manifest version.
     # Without this, every new release would have to re-upload all unchanged packs, and a client
     # asking for v2.0.1/app-1.0.0.zip would 404 for any app that didn't change in that release.
@@ -611,20 +611,20 @@ function Install-Pack {
 
     # Pack root contains top-level app dirs (e.g. git\, vscode\); each holds one or more
     # versioned subdirs (e.g. vscode\1.88.0\). We delete the entire app dir before installing:
-    #   - update (1.87→1.88): removes the old orphaned version dir (different folder, no conflict
-    #     without cleanup, but wastes space indefinitely — rollback is not supported in our model)
+    #   - update (1.87->1.88): removes the old orphaned version dir (different folder, no conflict
+    #     without cleanup, but wastes space indefinitely  - rollback is not supported in our model)
     #   - repair (same version): Expand-Archive -Force overwrites matching files but never deletes
     #     files removed between pack builds; pre-removal guarantees a bit-perfect install
 
     if (Test-Path $PackPath -PathType Container) {
-        # Pre-extracted pack (L: directory) — top-level dirs are app names, same as zip root
+        # Pre-extracted pack (L: directory)  - top-level dirs are app names, same as zip root
         Get-ChildItem $PackPath -Directory | ForEach-Object {
             $dest = Join-Path $appsDir $_.Name
             if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
         }
         Copy-Item "$PackPath\*" $appsDir -Recurse -Force
     } else {
-        # Zip pack — open to enumerate top-level dir names, then remove before expanding
+        # Zip pack  - open to enumerate top-level dir names, then remove before expanding
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [System.IO.Compression.ZipFile]::OpenRead($PackPath)
         try {
@@ -642,11 +642,11 @@ function Install-Pack {
     }
 }
 
-# ── entry point ────────────────────────────────────────────────────────────
+# -- entry point ------------------------------------------------------------
 
 if ($Command -eq "update") {
 
-    # Update mode resolves the path directly — do not call Find-ToolsetDir
+    # Update mode resolves the path directly  - do not call Find-ToolsetDir
     # because fresh installs arrive here with a non-existent path, which would
     # cause Find-ToolsetDir to exit 1 before the directory can be created.
     $toolsetdir = $Path
@@ -746,10 +746,10 @@ if ($Command -eq "update") {
         Copy-Item $myPath "$toolsetdir\toolset.ps1" -Force
     }
 
-    # Re-run activation (skipped for remote UNC paths — run toolset.ps1 locally on target to activate)
+    # Re-run activation (skipped for remote UNC paths  - run toolset.ps1 locally on target to activate)
     Write-Host ""
     if ($toolsetdir.StartsWith("\\")) {
-        Write-Host "Remote path — skipping activation. Run toolset.ps1 on the target machine to activate." -ForegroundColor Yellow
+        Write-Host "Remote path  - skipping activation. Run toolset.ps1 on the target machine to activate." -ForegroundColor Yellow
     } else {
         Write-Host "Running activation..." -ForegroundColor Cyan
         try {
@@ -781,13 +781,13 @@ if ($Command -eq "update") {
     Write-Host "Everything is up to date." -ForegroundColor Green
 
 } else {
-    # Activate mode — if activation fails (broken install), fall back to update
+    # Activate mode  - if activation fails (broken install), fall back to update
     $toolsetdir = Find-ToolsetDir -StartPath $Path -NoInteraction $NoInteraction
     try {
         Invoke-Activate -toolsetdir $toolsetdir -NoInteraction $NoInteraction
     } catch {
         Write-Warning "Activation failed: $_"
-        Write-Host "Broken install detected — switching to update mode..." -ForegroundColor Yellow
+        Write-Host "Broken install detected  - switching to update mode..." -ForegroundColor Yellow
         if ($PSCommandPath) {
             $LASTEXITCODE = 0   # initialize; PowerShell scripts don't set $LASTEXITCODE
             & $PSCommandPath update -Path $toolsetdir -PackSource:$PackSource -ManifestSource:$ManifestSource -NoInteraction:$NoInteraction
