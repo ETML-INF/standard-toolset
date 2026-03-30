@@ -39,12 +39,13 @@ Assert "[B2] has version"          ($props -contains 'version')
 Assert "[B2] has previousVersion"  ($props -contains 'previousVersion')
 Assert "[B2] has built"            ($props -contains 'built')
 Assert "[B2] has apps"             ($m.apps -ne $null -and $m.apps.Count -gt 0)
+Assert "[B2] scoop is first app"   ($m.apps[0].name -eq 'scoop')
 Assert "[B2] app.name"             (-not [string]::IsNullOrEmpty($m.apps[0].name))
 Assert "[B2] app.version"          (-not [string]::IsNullOrEmpty($m.apps[0].version))
 Assert "[B2] app.pack"             (-not [string]::IsNullOrEmpty($m.apps[0].pack))
 Assert "[B2] version matches env"  ($m.version -eq "test-99.0.0")
 
-Write-Host "[B3] pack zip — root structure" -ForegroundColor Cyan
+Write-Host "[B3] pack zip — root structure (jq)" -ForegroundColor Cyan
 $zip = Get-ChildItem "$buildPacks\jq-*.zip" | Select-Object -First 1
 $extractDir = "C:\tmp\b3-extract"
 if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
@@ -55,10 +56,26 @@ Assert "[B3] root dir is appName\"              (Test-Path "$extractDir\jq")
 $verDir = Get-ChildItem "$extractDir\jq" -Directory | Where-Object { $_.Name -ne 'current' } | Select-Object -First 1
 Assert "[B3] versioned dir exists"              ($null -ne $verDir)
 Assert "[B3] versioned manifest.json exists"    ($verDir -and (Test-Path "$($verDir.FullName)\manifest.json"))
-$packVer = if ($verDir) { (Get-Content "$($verDir.FullName)\manifest.json" | ConvertFrom-Json).version } else { $null }
-Assert "[B3] pack version matches manifest"     ($m.apps[0].version -eq $packVer)
+$packVer  = if ($verDir) { (Get-Content "$($verDir.FullName)\manifest.json" | ConvertFrom-Json).version } else { $null }
+$jqEntry  = $m.apps | Where-Object { $_.name -eq 'jq' } | Select-Object -First 1
+Assert "[B3] pack version matches manifest"     ($jqEntry -and $jqEntry.version -eq $packVer)
 Assert "[B3] current junction absent from pack" (-not (Test-Path "$extractDir\jq\current\manifest.json"))
 Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host "[B3b] scoop pack zip — versioned dir and scoop.ps1 present" -ForegroundColor Cyan
+$scoopZip = Get-ChildItem "$buildPacks\scoop-*.zip" | Select-Object -First 1
+Assert "[B3b] scoop zip exists"  ($null -ne $scoopZip)
+if ($scoopZip) {
+    $scoopExtract = "C:\tmp\b3b-extract"
+    if (Test-Path $scoopExtract) { Remove-Item $scoopExtract -Recurse -Force }
+    Expand-Archive $scoopZip.FullName -DestinationPath $scoopExtract -Force
+    $scoopVerDir = Get-ChildItem "$scoopExtract\scoop" -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'current' } | Select-Object -First 1
+    Assert "[B3b] scoop versioned dir exists"    ($null -ne $scoopVerDir)
+    Assert "[B3b] scoop.ps1 in versioned dir"    ($scoopVerDir -and (Test-Path "$($scoopVerDir.FullName)\bin\scoop.ps1"))
+    Assert "[B3b] no current\ in scoop pack"     (-not (Test-Path "$scoopExtract\scoop\current"))
+    Remove-Item $scoopExtract -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "[B4] build.ps1 — skips scoop install on second run" -ForegroundColor Cyan
 if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }

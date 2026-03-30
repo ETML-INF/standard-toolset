@@ -397,6 +397,42 @@ Assert "[27] exit 0"         ($ec27 -eq 0)
 Assert "[27] app1 installed" (Test-Path "$d27\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d27, $ps27, $ps27b
 
+Write-Host "[28] Fresh install — scoop pack bootstraps current\ junction" -ForegroundColor Cyan
+$d28 = "C:\tmp\s28d"; $ps28 = "C:\tmp\s28p"
+New-Item -Force -ItemType Directory $ps28 | Out-Null
+# Build a minimal fake scoop pack: versioned dir only, no current\ (mirrors real pack layout)
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$scoopVer28 = "1.0.0"
+$zip28 = [System.IO.Compression.ZipFile]::Open("$ps28\scoop-$scoopVer28.zip", [System.IO.Compression.ZipArchiveMode]::Create)
+foreach ($e28 in @(
+    @{ name = "scoop/$scoopVer28/manifest.json"; content = "{`"version`":`"$scoopVer28`"}" }
+    @{ name = "scoop/$scoopVer28/bin/scoop.ps1"; content = "# fake scoop stub" }
+)) {
+    $ze = $zip28.CreateEntry($e28.name, [System.IO.Compression.CompressionLevel]::Optimal)
+    $sw = [System.IO.StreamWriter]::new($ze.Open())
+    $sw.Write($e28.content); $sw.Dispose()
+}
+$zip28.Dispose()
+# app1 pack via helper (includes current\ in zip for test simplicity)
+& $helper -OutputDir $ps28 -Apps @(@{Name="app1";Version="1.0.0"})
+# Manifest with scoop first (as build.ps1 now produces)
+@{
+    version = "99.0.0"
+    built   = (Get-Date -Format "o")
+    apps    = @(
+        @{ name = "scoop"; version = $scoopVer28; pack = "scoop-$scoopVer28.zip" }
+        @{ name = "app1";  version = "1.0.0";     pack = "app1-1.0.0.zip" }
+    )
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps28\release-manifest.json" -Encoding UTF8
+New-Item -Force -ItemType Directory $d28 | Out-Null
+pwsh -File $toolkit update -Path $d28 -ManifestSource "$ps28\release-manifest.json" -PackSource $ps28 -NoInteraction
+$ec28 = $LASTEXITCODE
+Assert "[28] exit 0"                 ($ec28 -eq 0)
+Assert "[28] scoop current\ created" (Test-Path "$d28\scoop\apps\scoop\current")
+Assert "[28] scoop.ps1 accessible"   (Test-Path "$d28\scoop\apps\scoop\current\bin\scoop.ps1")
+Assert "[28] app1 installed"         (Test-Path "$d28\scoop\apps\app1\current\manifest.json")
+Remove-TestDir $d28, $ps28
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) {

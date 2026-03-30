@@ -134,11 +134,25 @@ function Invoke-Activate {
     }
 
     $scoopPs1 = "$scoopdir\apps\scoop\current\bin\scoop.ps1"
+    if (-not (Test-Path $scoopPs1 -ErrorAction SilentlyContinue)) {
+        # current\ junction missing - fresh install or scoop update.
+        # Find the versioned dir and create the junction so scoop reset * can run.
+        $scoopVerDir = Get-ChildItem "$scoopdir\apps\scoop" -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'current' } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+        if ($scoopVerDir) {
+            Write-Host "Bootstrapping scoop current\ junction ($($scoopVerDir.Name))..." -ForegroundColor Green
+            $junctionPath = "$scoopdir\apps\scoop\current"
+            if (Test-Path $junctionPath) { [System.IO.Directory]::Delete($junctionPath) }
+            New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
+        }
+    }
     if (Test-Path $scoopPs1 -ErrorAction SilentlyContinue) {
         Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
         & $scoopPs1 reset *
     } else {
-        Write-Warning "scoop.ps1 not found at $scoopPs1  - skipping junction reset (will complete on next activation)"
+        Write-Warning "scoop.ps1 not found at $scoopPs1 - skipping junction reset (will complete on next activation)"
     }
 
     # Drop paths2DropToEnableMultiUser from each app's current\ dir so apps fall back to
@@ -301,11 +315,15 @@ function Invoke-Download {
 
     # Try BITS first  - resumable, progress display, handles large packs well.
     # Falls through silently if BITS is unavailable (containers, PS remoting, etc.)
+    $job = $null
     try {
         Import-Module BitsTransfer -ErrorAction Stop
-        $job     = Start-BitsTransfer -Source $Url -Destination $OutFile `
-                       -Asynchronous -DisplayName $label -ErrorAction Stop
-        $timeout = (Get-Date).AddMinutes(75)
+        $job         = Start-BitsTransfer -Source $Url -Destination $OutFile `
+                           -Asynchronous -DisplayName $label -ErrorAction Stop
+        $timeout     = (Get-Date).AddMinutes(75)
+        $lastBytes   = -1
+        $staleStart  = $null
+        $stallSecs   = 60
         do {
             Start-Sleep -Seconds 3
             $progress = Get-BitsTransfer -JobId $job.JobId
@@ -313,29 +331,66 @@ function Invoke-Download {
                 $pct = [math]::Round(($progress.BytesTransferred / $progress.BytesTotal) * 100, 1)
                 $mb  = [math]::Round($progress.BytesTransferred / 1MB, 1)
                 $tot = [math]::Round($progress.BytesTotal / 1MB, 1)
-                Write-Host ("`r" + " " * 80 + "`r    $pct% ($mb / $tot MB)") -NoNewline
+                Write-Host ("`r" + " " * 80 + "`r  $label... $pct% ($mb / $tot MB)") -NoNewline
+            }
+            if ($progress.BytesTransferred -ne $lastBytes) {
+                $lastBytes  = $progress.BytesTransferred
+                $staleStart = $null
+            } else {
+                if (-not $staleStart) { $staleStart = Get-Date }
+                elseif (((Get-Date) - $staleStart).TotalSeconds -ge $stallSecs) {
+                    Remove-BitsTransfer -BitsJob $job
+                    $job = $null
+                    throw "BITS stalled for ${stallSecs}s - falling back to Invoke-WebRequest"
+                }
             }
             if ((Get-Date) -gt $timeout) {
                 Remove-BitsTransfer -BitsJob $job
+                $job = $null
                 throw "BITS timeout after 75 minutes"
             }
         } while ($progress.JobState -in @("Transferring", "Connecting", "TransientError"))
         Write-Host ""
         if ($progress.JobState -eq "Transferred") {
             Complete-BitsTransfer -BitsJob $job
+            $job = $null
             return
         }
         Remove-BitsTransfer -BitsJob $job
+        $job = $null
         throw "BITS ended in state: $($progress.JobState)  - $($progress.ErrorDescription)"
+    } catch [System.Management.Automation.PipelineStoppedException] {
+        # Ctrl+C: clean up the BITS job so it doesn't keep running in the background, then stop.
+        Write-Host ""
+        if ($job) { try { Remove-BitsTransfer -BitsJob $job -ErrorAction SilentlyContinue } catch {} }
+        throw
     } catch {
-        Write-Verbose "BITS unavailable for $label : $_  - falling back to Invoke-WebRequest"
+        Write-Host ""  # end any open progress line before the warning
+        if ($job) { try { Remove-BitsTransfer -BitsJob $job -ErrorAction SilentlyContinue } catch {} }
+        $msg = "$_"
+        if ($msg -match 'stalled|timeout') {
+            Write-Warning "BITS: $msg - retrying with Invoke-WebRequest"
+        } else {
+            Write-Verbose "BITS unavailable for $label : $msg - falling back to Invoke-WebRequest"
+        }
     }
 
     # Fallback: works in containers and environments without BITS.
     # -UseBasicParsing bypasses the IE engine on Windows PS 5.1 (Server Core, fresh installs).
-    $iwrArgs = @{ Uri = $Url; OutFile = $OutFile; ErrorAction = 'Stop' }
+    # Retries 3 times for transient failures (EOF, connection reset, etc.).
+    $iwrArgs    = @{ Uri = $Url; OutFile = $OutFile; ErrorAction = 'Stop' }
     if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-    Invoke-WebRequest @iwrArgs
+    $attempts   = 0
+    $maxAttempts = 3
+    while ($attempts -lt $maxAttempts) {
+        $attempts++
+        try { Invoke-WebRequest @iwrArgs; break } catch {
+            if ($attempts -ge $maxAttempts) { throw }
+            Write-Verbose "IWR attempt $attempts failed for $label : $_ - retrying in 5s"
+            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 5
+        }
+    }
 }
 
 function Get-ReleaseManifest {

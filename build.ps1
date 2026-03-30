@@ -198,6 +198,38 @@ try {
     $packResults   = @{}  # appName → [ordered]@{name, version, pack}
     $reusedCount   = 0
 
+    # ── Pack scoop itself (always first in manifest) ──────────────────────
+    # scoop must be present on the client so Invoke-Activate can run
+    # 'scoop reset *' to recreate current\ junctions after pack extraction.
+    # It is bootstrapped during build but not listed in apps.json, so we
+    # handle it here independently of the normal app loop.
+    $scoopAppDir     = "$buildScoopDir\apps\scoop"
+    $scoopManifest   = "$scoopAppDir\current\manifest.json"
+    $scoopPackResult = $null
+    if (Test-Path $scoopManifest) {
+        $scoopVer = (Get-Content $scoopManifest -Raw | ConvertFrom-Json).version
+        $scoopKey = "scoop:$scoopVer"
+        if ($packLibrary.ContainsKey($scoopKey)) {
+            $entry = $packLibrary[$scoopKey]
+            Write-Output "  Reusing scoop $scoopVer (pack stays at $($entry.url))"
+            $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $entry.pack; packUrl = $entry.url }
+            if ($null -ne $entry.fileCount) { $scoopPackResult['fileCount'] = $entry.fileCount }
+            if ($null -ne $entry.totalSize)  { $scoopPackResult['totalSize'] = $entry.totalSize }
+            $reusedCount++
+        } else {
+            $scoopPackName = "scoop-$scoopVer.zip"
+            $scoopPackPath = "$packsDir\$scoopPackName"
+            Write-Output "  Packing scoop $scoopVer..."
+            New-ZipPack -AppDir $scoopAppDir -DestZip $scoopPackPath
+            $zr = [System.IO.Compression.ZipFile]::OpenRead($scoopPackPath)
+            try { $fc = $zr.Entries.Count; $ts = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum }
+            finally { $zr.Dispose() }
+            $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $scoopPackName; fileCount = $fc; totalSize = $ts }
+        }
+    } else {
+        Write-Warning "scoop manifest not found at $scoopManifest - scoop will not be included in this release"
+    }
+
     # ── Pre-flight: check available version via scoop cat ─────────────────
     # Use bucket-qualified name when available to avoid ambiguity across buckets.
     # 'scoop cat <app>' uses scoop's own bucket priority — no internal path assumptions.
@@ -304,7 +336,9 @@ try {
     }
 
     # ── Write release-manifest.json in apps.json order ───────────────────
+    # scoop is always first: Invoke-Activate needs it before any other app.
     $manifestApps = @()
+    if ($scoopPackResult) { $manifestApps += $scoopPackResult }
     foreach ($app in $apps) {
         if ($packResults.ContainsKey($app.name)) {
             $entry = $packResults[$app.name]

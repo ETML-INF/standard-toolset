@@ -17,6 +17,34 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
 
+# Load Invoke-Download from toolset.ps1 — single source of truth, no duplication.
+# Uses the PowerShell AST parser to extract the function definition without executing
+# the rest of toolset.ps1 (which would trigger activation/update logic).
+$toolsetPs1 = Join-Path $PSScriptRoot "toolset.ps1"
+if (-not (Test-Path $toolsetPs1)) { throw "toolset.ps1 not found at $PSScriptRoot" }
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($toolsetPs1, [ref]$null, [ref]$null)
+$fnNode = $ast.Find({
+    param($n)
+    $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-Download'
+}, $true)
+if (-not $fnNode) { throw "Invoke-Download not found in toolset.ps1" }
+. ([scriptblock]::Create($fnNode.Extent.Text))
+
+function Get-RemoteFileSize {
+    param([string]$Url)
+    # Uses HttpWebRequest directly: reliable redirect-following HEAD across PS 5.1 and 7+.
+    # Returns -1 when the server doesn't provide Content-Length or on any error.
+    try {
+        $req = [System.Net.HttpWebRequest]::Create($Url)
+        $req.Method = 'HEAD'
+        $req.AllowAutoRedirect = $true
+        $resp = $req.GetResponse()
+        $size = $resp.ContentLength
+        $resp.Close()
+        return $size
+    } catch { return -1 }
+}
+
 Write-Host "+------------------------------------------+" -ForegroundColor Cyan
 Write-Host "|   TOOLSET OFFLINE DOWNLOAD UTILITY       |" -ForegroundColor White
 Write-Host "+------------------------------------------+" -ForegroundColor Cyan
@@ -89,22 +117,37 @@ foreach ($app in $manifestJson.apps) {
     } else {
         "$repoBase/download/v$Version/$($app.pack)"
     }
-    Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
-    $iwrArgs = @{ Uri = $packUrl; OutFile = "$verDir\$($app.pack)"; ErrorAction = 'Stop' }
-    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-    Invoke-WebRequest @iwrArgs
-    Copy-Item "$verDir\$($app.pack)" "$DestinationPath\$($app.pack)" -Force
-    Write-Host " done" -ForegroundColor Green
+    $outFile = "$verDir\$($app.pack)"
+    $needsDownload = $true
+    if ((Test-Path $outFile) -and (Get-Item $outFile).Length -gt 0) {
+        $localSize  = (Get-Item $outFile).Length
+        $remoteSize = Get-RemoteFileSize $packUrl
+        if ($remoteSize -le 0) {
+            Write-Host "  $($app.pack)... present (size unverifiable), skipping" -ForegroundColor DarkGray
+            $needsDownload = $false
+        } elseif ($localSize -eq $remoteSize) {
+            Write-Host "  $($app.pack)... present ($([math]::Round($localSize/1MB,1)) MB, size OK), skipping" -ForegroundColor DarkGray
+            $needsDownload = $false
+        } else {
+            Write-Warning "$($app.pack): size mismatch (local $localSize B vs remote $remoteSize B) - re-downloading"
+            Remove-Item $outFile -Force
+        }
+    }
+    if ($needsDownload) {
+        Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
+        Invoke-Download -Url $packUrl -OutFile $outFile -Description $app.pack
+        Write-Host " done" -ForegroundColor Green
+    }
+    Copy-Item $outFile "$DestinationPath\$($app.pack)" -Force
 }
 
 foreach ($scriptName in @("toolset.ps1", "setup.ps1")) {
     $scriptUrl = "$repoBase/download/v$Version/$scriptName"
     try {
-        $iwrArgs = @{ Uri = $scriptUrl; OutFile = "$verDir\$scriptName"; ErrorAction = 'Stop' }
-        if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-        Invoke-WebRequest @iwrArgs
+        Write-Host "  $scriptName..." -ForegroundColor Yellow -NoNewline
+        Invoke-Download -Url $scriptUrl -OutFile "$verDir\$scriptName" -Description $scriptName
+        Write-Host " done" -ForegroundColor Green
         Copy-Item "$verDir\$scriptName" "$DestinationPath\$scriptName" -Force
-        Write-Host "$scriptName downloaded" -ForegroundColor Green
     } catch {
         Write-Warning "$scriptName not found in release v$Version : $_"
     }
