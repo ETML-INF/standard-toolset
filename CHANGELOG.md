@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.3](https://github.com/ETML-INF/standard-toolset/compare/v2.1.2...v2.1.3) (2026-03-30)
+
+
+### Bug Fixes
+
+* **cicd:** login to ghcr to use cached images ([1db8345](https://github.com/ETML-INF/standard-toolset/commit/1db8345c2d3f760bcd4d7b1e7b67f807a8b128dd))
+* **powershell5:** remove invalid ascii chars for ps5 support ([053b145](https://github.com/ETML-INF/standard-toolset/commit/053b145bed038f8daab9dc31b37f405d50978799))
+
 ## [2.1.2](https://github.com/ETML-INF/standard-toolset/compare/v2.1.1...v2.1.2) (2026-03-29)
 
 
