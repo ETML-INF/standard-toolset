@@ -56,7 +56,10 @@ $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { '
 try {
     # toolset.ps1 already falls back to L:\toolset automatically when GitHub is unreachable,
     # so no -PackSource is needed here for the standard offline scenario.
-    & $shell -File $tmpToolset update -Path $Destination -NoInteraction:$NoInteraction
+    # Pass -NoInteraction only when present: native-process calls (powershell.exe / pwsh)
+    # serialise -Switch:$false as the string "False", which [switch] can't accept.
+    $extraArgs = if ($NoInteraction) { @('-NoInteraction') } else { @() }
+    & $shell -File $tmpToolset update -Path $Destination @extraArgs
 } finally {
     Remove-Item $tmpToolset -Force -ErrorAction SilentlyContinue
 }
