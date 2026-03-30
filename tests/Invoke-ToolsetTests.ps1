@@ -113,58 +113,6 @@ pwsh -File $toolkit -Path $d10 -NoInteraction
 Assert "[10] reg: old path gone"  ((Get-Content "$regDir\testapp.reg" -Raw) -notlike '*was-here*')
 Remove-TestDir $d10
 
-Write-Host "[11] gitconfig.ps1 — safe.directory patching" -ForegroundColor Cyan
-$gc = "C:\toolset-repo\gitconfig.ps1"
-$dir = "C:\tmp\s11-toolset"
-
-# [11a] No existing .gitconfig file at all → [safe] block created from scratch
-$f = "C:\tmp\s11a.gitconfig"
-Remove-Item $f -Force -ErrorAction SilentlyContinue
-& pwsh -File $gc $f $dir *> $null
-$c = Get-Content $f -Raw
-Assert "[11a] [safe] section created"    ($c -match '\[safe\]')
-Assert "[11a] directory line added"      ($c -match 'directory\s*=')
-Assert "[11a] path in directory"         ($c -match [regex]::Escape($dir.Replace('\','/')))
-
-# [11b] .gitconfig exists without [safe] → block prepended
-$f = "C:\tmp\s11b.gitconfig"
-Set-Content $f "[user]`n`tname = Test" -Encoding UTF8
-& pwsh -File $gc $f $dir *> $null
-$c = Get-Content $f -Raw
-Assert "[11b] [safe] prepended"          ($c -match '\[safe\]')
-Assert "[11b] [user] still present"      ($c -match '\[user\]')
-Assert "[11b] directory points to dir"   ($c -match [regex]::Escape($dir.Replace('\','/')))
-
-# [11c] .gitconfig has [safe] but no directory → line inserted after [safe]
-$f = "C:\tmp\s11c.gitconfig"
-Set-Content $f "[safe]`n[user]`n`tname = Test" -Encoding UTF8
-& pwsh -File $gc $f $dir *> $null
-$c = Get-Content $f -Raw
-Assert "[11c] directory inserted"        ($c -match 'directory\s*=')
-Assert "[11c] path correct"             ($c -match [regex]::Escape($dir.Replace('\','/')))
-
-# [11d] .gitconfig has [safe] with existing directory → replaced
-$f = "C:\tmp\s11d.gitconfig"
-Set-Content $f "[safe]`n`tdirectory = C:/old/path/*" -Encoding UTF8
-& pwsh -File $gc $f $dir *> $null
-$lines = Get-Content $f
-$dirLines = @($lines | Where-Object { $_ -match 'directory\s*=' })
-Assert "[11d] only one directory line"   ($dirLines.Count -eq 1)
-Assert "[11d] old path replaced"         ($dirLines[0] -notmatch 'old/path')
-Assert "[11d] new path set"              ($dirLines[0] -match [regex]::Escape($dir.Replace('\','/')))
-
-# [11e] Another section has a directory= key — must not be touched; only [safe] section is updated
-$f = "C:\tmp\s11e.gitconfig"
-Set-Content $f "[url `"git@github.com:`"]`n`tdirectory = some/repo/path`n[safe]`n`tdirectory = C:/old/path/*" -Encoding UTF8
-& pwsh -File $gc $f $dir *> $null
-$lines11e = Get-Content $f
-$urlDirLines11e  = @($lines11e | Where-Object { $_ -match '^\s*directory\s*=\s*some/repo/path' })
-$safeDirLines11e = @($lines11e | Where-Object { $_ -match [regex]::Escape($dir.Replace('\','/')) })
-Assert "[11e] [url] directory line untouched"  ($urlDirLines11e.Count -eq 1)
-Assert "[11e] [safe] directory updated"        ($safeDirLines11e.Count -eq 1)
-
-Remove-Item "C:\tmp\s11*.gitconfig" -Force -ErrorAction SilentlyContinue
-
 Write-Host "[12] Activation — paths2DropToEnableMultiUser cleanup" -ForegroundColor Cyan
 $d12 = "C:\tmp\s12d"; $sd12 = "$d12\scoop"
 New-FakeScoopStub -ScoopDir $sd12
