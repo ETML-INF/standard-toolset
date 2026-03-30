@@ -5,7 +5,11 @@ param(
     # Filesystem path to a fake "previous release" manifest — used by tests to exercise
     # pack reuse without needing live GitHub releases.  Read with Get-Content, bypassing
     # the URL chain entirely.  Leave empty in production.
-    [Parameter(Mandatory=$false)][string]$PreviousManifestPath = ""
+    [Parameter(Mandatory=$false)][string]$PreviousManifestPath = "",
+    # Path to a private apps manifest (same format as apps.json) that extends the public
+    # list with local-only entries. Defaults to L:\toolset\private-apps.json. Only loaded
+    # if the file is accessible — silently skipped otherwise so CI builds still work.
+    [Parameter(Mandatory=$false)][string]$PrivateAppsPath = "L:\toolset\private-apps.json"
 )
 
 # Start transcript for logging (parallel-safe with unique filename)
@@ -17,7 +21,8 @@ if (-not $ConsoleOutput) {
 try {
     Set-StrictMode -Version Latest
 
-    $buildScoopDir = "$($pwd.Path)\build\scoop"
+    $repoRoot      = $pwd.Path   # capture before any external command may change $PWD
+    $buildScoopDir = "$repoRoot\build\scoop"
     $env:SCOOP = $buildScoopDir
     $env:PATH  = "$buildScoopDir\shims;" + $env:PATH
 
@@ -37,12 +42,59 @@ try {
         Remove-Item $install_file
     }
 
+    # Ensure scoop's own app dir has the versioned structure New-ZipPack requires.
+    # Fresh install puts files in apps\scoop\current\ as a real folder (no versioned dirs).
+    # New-ZipPack excludes anything under current\ (to skip the junction for other apps),
+    # so the scoop zip would be empty without this step.
+    # 'scoop update scoop' creates apps\scoop\<version>\ and makes current\ a junction —
+    # exactly the structure we need. It is idempotent (no-op when already up to date).
+    $scoopCurrentPath = "$buildScoopDir\apps\scoop\current"
+    $scoopCurrentItem = Get-Item $scoopCurrentPath -ErrorAction SilentlyContinue
+    $isJunction = $scoopCurrentItem -and ($scoopCurrentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+    if ($scoopCurrentItem -and -not $isJunction) {
+        # current\ is a real dir (fresh install). Create versioned dir + junction so
+        # New-ZipPack can include scoop's files without hitting the current\ exclusion.
+        # 'scoop update scoop' only creates versioned dirs on an actual version bump,
+        # so we normalize manually. Version detection runs in a child process to avoid
+        # null-reference failures in scoop's own code under Set-StrictMode -Version Latest.
+        $normalizeVer = $null
+        if (Test-Path "$scoopCurrentPath\manifest.json") {
+            $normalizeVer = (Get-Content "$scoopCurrentPath\manifest.json" -Raw | ConvertFrom-Json).version
+        }
+        if (-not $normalizeVer) {
+            $verOut = pwsh -NoProfile -NonInteractive -Command "& '$scoopCurrentPath\bin\scoop.ps1' --version 2>&1" 2>&1 | Out-String
+            if ($verOut -match '(\d+\.\d+\.\d+)') { $normalizeVer = $Matches[1] }
+        }
+        if ($normalizeVer) {
+            $normalizeVerDir = "$buildScoopDir\apps\scoop\$normalizeVer"
+            if (-not (Test-Path $normalizeVerDir)) {
+                Write-Output "Normalizing scoop to versioned structure ($normalizeVer)..."
+                Copy-Item $scoopCurrentPath $normalizeVerDir -Recurse -Force
+            }
+            Remove-Item $scoopCurrentPath -Recurse -Force
+            New-Item -ItemType Junction -Path $scoopCurrentPath -Value $normalizeVerDir | Out-Null
+        } else {
+            Write-Warning "Could not determine scoop version - scoop will not be packed"
+        }
+    }
+
     # Ensure required buckets exist (idempotent — safe whether scoop is fresh or pre-installed)
     scoop bucket add extras 2>$null
     scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket 2>$null
 
     Write-Output "About to install apps defined in $appJson"
     $apps = Get-Content -Raw $appJson | ConvertFrom-Json
+
+    # Merge private apps from network drive (silently skipped when unreachable or absent).
+    # private-apps.json lives only on L:\ — never committed to the repo — so private app
+    # names, versions, and localPack paths never appear in git history or CI logs.
+    if (Test-Path $PrivateAppsPath -ErrorAction SilentlyContinue) {
+        $privateApps = Get-Content -Raw $PrivateAppsPath | ConvertFrom-Json
+        Write-Output "Loaded $($privateApps.Count) private app(s) from $PrivateAppsPath"
+        $apps = @($apps) + @($privateApps)
+    } else {
+        Write-Output "No private apps manifest at $PrivateAppsPath (skipped)"
+    }
 
     # ── New-ZipPack: .NET-based zip helper ────────────────────────────────
     # Replaces Compress-Archive, which silently skips .git directories.
@@ -68,20 +120,11 @@ try {
         } finally { $zip.Dispose() }
     }
 
-    # ── Pack library: walk the manifest chain via plain HTTP ──────────────
-    # release-manifest.json carries a 'previousVersion' field that chains releases
-    # together. We follow the chain using direct download URLs (no GitHub API token
-    # needed, no rate-limit concerns). Pack download URLs are constructed the same way.
-    #
-    # Starting URL: when RELEASE_VERSION is set (CI context), release-please has already
-    # created the new GitHub Release tag before this script runs — so "latest" now points
-    # to the release being built (no assets yet) and returns 404.  We skip it by finding
-    # the most recent *previous* release via "gh release list".  Locally (no RELEASE_VERSION)
-    # we fall back to the plain latest URL so the script stays usable without gh auth.
-    #
-    # Chain: v<previousRelease>/release-manifest.json
-    #          → releases/download/v<previousVersion>/release-manifest.json
-    #          → ...  (up to $maxHops releases back)
+    # ── Pack library: enumerate past releases via gh release list ─────────
+    # In CI (RELEASE_VERSION set) we call "gh release list --limit 50" to get all
+    # available release tags, then fetch each manifest in order (newest first).
+    # A 404 (deleted release) is silently skipped — the chain never breaks.
+    # Locally (no RELEASE_VERSION) the queue is left empty and everything is rebuilt.
     #
     # packUrl fix: a reused pack in a prior release already carries a packUrl pointing to
     # the release where it was originally built.  We must use that URL rather than
@@ -101,7 +144,6 @@ try {
         $null
     }
     $packLibrary = @{}      # "appName:version" → {pack, url}
-    $prevVersion = $null    # version of current-latest, stored as previousVersion in new manifest
     $maxHops     = 10
 
     try {
@@ -116,7 +158,6 @@ try {
         # This path requires no GitHub URL, so the repoBase guard below does not apply.
         if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
             $m0 = Get-Content $PreviousManifestPath -Raw | ConvertFrom-Json
-            $prevVersion = $m0.version
             foreach ($a in $m0.apps) {
                 $key = "$($a.name):$($a.version)"
                 if ($packLibrary.ContainsKey($key)) { continue }
@@ -133,26 +174,39 @@ try {
             Write-Output "Pack library: $($packLibrary.Count) entries (injected from $PreviousManifestPath)"
         }
 
-        $manifestUrl = if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
-            $null   # already seeded above; skip URL chain
+        # Build a queue of manifest URLs to try, newest-first.
+        # CI mode: enumerate all releases upfront so deleted intermediate releases
+        #          are skipped with 'continue' rather than breaking the chain.
+        # Local mode: follow previousVersion links (no gh auth required).
+        $manifestQueue = [System.Collections.Generic.Queue[string]]::new()
+
+        if (-not [string]::IsNullOrEmpty($PreviousManifestPath)) {
+            # already seeded above; skip URL chain
         } elseif (-not $repoBase) {
             Write-Warning "No GitHub repo URL — URL chain disabled, only injected entries available."
-            $null
         } elseif ($currentTag) {
-            $prevTag = gh release list --repo $repoSlug --limit 10 --json tagName 2>$null |
+            # CI: pre-enumerate all release tags so a missing intermediate release
+            # (404) only skips that release rather than aborting the whole chain.
+            $allTags = gh release list --repo $repoSlug --limit 50 --json tagName 2>$null |
                 ConvertFrom-Json |
                 Where-Object { $_.tagName -ne $currentTag } |
-                Select-Object -First 1 -ExpandProperty tagName
-            if ($prevTag) { "$repoBase/download/$prevTag/release-manifest.json" } else { $null }
+                ForEach-Object { $_.tagName }
+            foreach ($tag in $allTags) {
+                $manifestQueue.Enqueue("$repoBase/download/$tag/release-manifest.json")
+            }
         } else {
-            "$repoBase/latest/download/release-manifest.json"
+            # Local / ad-hoc build: no RELEASE_VERSION → no gh auth assumed → queue stays
+            # empty → pack library is never populated → every app is freshly zipped.
+            # Pack reuse only matters in CI (avoids re-uploading unchanged zips to a release).
+            # Locally you typically run this to test the build pipeline itself, not to produce
+            # a deployable release — so rebuilding everything is correct and expected.
         }
 
         $hop = 0
-        while ($manifestUrl -and $hop -lt $maxHops) {
+        while ($manifestQueue.Count -gt 0 -and $hop -lt $maxHops) {
+            $manifestUrl = $manifestQueue.Dequeue()
             try {
                 $m = Invoke-RestMethod $manifestUrl -ErrorAction Stop
-                if ($hop -eq 0) { $prevVersion = $m.version }  # remember before we overwrite
                 foreach ($a in $m.apps) {
                     $key = "$($a.name):$($a.version)"
                     if ($packLibrary.ContainsKey($key)) { continue }  # newer release already has it
@@ -174,13 +228,11 @@ try {
                         totalSize = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
                     }
                 }
-                $manifestUrl = if ($m.PSObject.Properties['previousVersion'] -and $m.previousVersion) {
-                    "$repoBase/download/v$($m.previousVersion)/release-manifest.json"
-                } else { $null }
                 $hop++
             } catch {
-                Write-Verbose "Chain ended at hop $hop : $_"
-                break
+                # A 404 means that release was deleted — skip and try the next one.
+                Write-Verbose "Skipping release (unreachable): $manifestUrl - $_"
+                continue
             }
         }
         Write-Output "Pack library: $($packLibrary.Count) entries across $hop release(s)"
@@ -188,7 +240,7 @@ try {
         Write-Warning "Cannot build pack library (will build all packs): $_"
     }
 
-    $packsDir = "$($pwd.Path)\build\packs"
+    $packsDir = "$repoRoot\build\packs"
     New-Item -ItemType Directory -Force -Path $packsDir | Out-Null
 
     $releaseVersion = ($env:RELEASE_VERSION -replace '^v', '')
@@ -204,10 +256,20 @@ try {
     # It is bootstrapped during build but not listed in apps.json, so we
     # handle it here independently of the normal app loop.
     $scoopAppDir     = "$buildScoopDir\apps\scoop"
-    $scoopManifest   = "$scoopAppDir\current\manifest.json"
+    # After normalization above, current\ is a junction to a versioned dir.
+    # manifest.json may not exist (scoop installs itself without one); fall back to
+    # the versioned dir name, which was set to the version string during normalization.
+    $scoopVer = $null
+    if (Test-Path "$scoopAppDir\current\manifest.json") {
+        $scoopVer = (Get-Content "$scoopAppDir\current\manifest.json" -Raw | ConvertFrom-Json).version
+    }
+    if (-not $scoopVer) {
+        $scoopVer = Get-ChildItem $scoopAppDir -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'current' } |
+            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name
+    }
     $scoopPackResult = $null
-    if (Test-Path $scoopManifest) {
-        $scoopVer = (Get-Content $scoopManifest -Raw | ConvertFrom-Json).version
+    if ($scoopVer) {
         $scoopKey = "scoop:$scoopVer"
         if ($packLibrary.ContainsKey($scoopKey)) {
             $entry = $packLibrary[$scoopKey]
@@ -227,13 +289,18 @@ try {
             $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $scoopPackName; fileCount = $fc; totalSize = $ts }
         }
     } else {
-        Write-Warning "scoop manifest not found at $scoopManifest - scoop will not be included in this release"
+        Write-Warning "Could not determine scoop version under $scoopAppDir - scoop will not be included in this release"
     }
 
     # ── Pre-flight: check available version via scoop cat ─────────────────
     # Use bucket-qualified name when available to avoid ambiguity across buckets.
     # 'scoop cat <app>' uses scoop's own bucket priority — no internal path assumptions.
     foreach ($app in $apps) {
+        # Skip comment-only entries (e.g. {"//": "..."} used as JSON comments)
+        if (-not ($app | Get-Member -Name 'name')) { continue }
+        # Local packs (localPack field) are private files on L:\ — skip scoop entirely.
+        if ($app | Get-Member -Name 'localPack') { continue }
+
         $appName     = $app.name
         $qualifiedName = if ($app | Get-Member -Name 'bucket') { "$($app.bucket)/$($app.name)" } else { $app.name }
 
@@ -335,11 +402,33 @@ try {
         }
     }
 
+    # ── Local (private) packs — sourced from L:\ or any local path ──────
+    # Apps with a 'localPack' field are not installed via scoop and are not uploaded
+    # to GitHub releases. Their packUrl in the manifest points to the local path so
+    # toolset.ps1 copies them directly from there at deploy time.
+    # Missing local pack = warning + skip (build does not fail).
+    foreach ($app in $apps) {
+        if (-not ($app | Get-Member -Name 'name'))     { continue }
+        if (-not ($app | Get-Member -Name 'localPack')) { continue }
+        $lp = $app.localPack
+        if (-not (Test-Path $lp)) {
+            Write-Warning "Local pack not found: $lp - $($app.name) will be omitted from this release"
+            continue
+        }
+        $lpFile = Split-Path $lp -Leaf
+        $lpVer  = if ($app | Get-Member -Name 'version') { $app.version } `
+                  elseif ($lpFile -match '-(\d[\d.]*)\.zip$') { $Matches[1] } `
+                  else { 'unknown' }
+        Write-Output "  Local pack: $($app.name) $lpVer from $lp"
+        $packResults[$app.name] = [ordered]@{ name = $app.name; version = $lpVer; pack = $lpFile; packUrl = $lp }
+    }
+
     # ── Write release-manifest.json in apps.json order ───────────────────
     # scoop is always first: Invoke-Activate needs it before any other app.
     $manifestApps = @()
     if ($scoopPackResult) { $manifestApps += $scoopPackResult }
     foreach ($app in $apps) {
+        if (-not ($app | Get-Member -Name 'name')) { continue }
         if ($packResults.ContainsKey($app.name)) {
             $entry = $packResults[$app.name]
             if ($app.PSObject.Properties['paths2DropToEnableMultiUser']) { $entry['paths2DropToEnableMultiUser'] = $app.paths2DropToEnableMultiUser }
@@ -349,7 +438,6 @@ try {
 
     $manifest = [ordered]@{
         version             = $releaseVersion
-        previousVersion     = $prevVersion   # enables chain-walking without GitHub API
         built               = (Get-Date -Format "o")
         # Absolute path of scoop\persist at build time — used by toolset.ps1 to fix
         # embedded paths in nodejs-lts npm modules without hardcoding the CI workspace.

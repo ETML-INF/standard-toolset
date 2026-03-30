@@ -36,7 +36,6 @@ Write-Host "[B2] release-manifest.json — schema" -ForegroundColor Cyan
 $m = Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json
 $props = $m.PSObject.Properties.Name
 Assert "[B2] has version"          ($props -contains 'version')
-Assert "[B2] has previousVersion"  ($props -contains 'previousVersion')
 Assert "[B2] has built"            ($props -contains 'built')
 Assert "[B2] has apps"             ($m.apps -ne $null -and $m.apps.Count -gt 0)
 Assert "[B2] scoop is first app"   ($m.apps[0].name -eq 'scoop')
@@ -117,6 +116,53 @@ Assert "[B5] jq has packUrl in manifest" ($null -ne $jqPackUrl5)
 Assert "[B5] packUrl points to origin"   ($jqPackUrl5 -eq $fakePackUrl)
 Assert "[B5] no jq zip in packs dir"     ($jqZipCount -eq 0)
 Remove-Item $fakePrevManifestPath -Force -ErrorAction SilentlyContinue
+
+Write-Host "[B7] localPack — private pack sourced from local path, not uploaded" -ForegroundColor Cyan
+# Create a fake zip that mimics a private pack (minimal valid zip)
+$fakeLocalPackDir  = "C:\tmp\b7-localpack"
+$fakeLocalPackZip  = "$fakeLocalPackDir\privateapp-2.0.0.zip"
+New-Item -Force -ItemType Directory $fakeLocalPackDir | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$tmpZip = [System.IO.Compression.ZipFile]::Open($fakeLocalPackZip, [System.IO.Compression.ZipArchiveMode]::Create)
+$tmpZip.CreateEntry("privateapp/2.0.0/dummy.txt") | Out-Null
+$tmpZip.Dispose()
+# private-apps.json with a comment entry and the real app entry
+$b7PrivateJson = "C:\tmp\b7-private.json"
+@(
+    @{ "//" = "comment entry - should be silently skipped" },
+    @{ name = "privateapp"; version = "2.0.0"; localPack = $fakeLocalPackZip }
+) | ConvertTo-Json | Set-Content $b7PrivateJson -Encoding UTF8
+$b7AppsJson = "C:\tmp\b7-apps.json"
+@() | ConvertTo-Json | Set-Content $b7AppsJson -Encoding UTF8   # empty public apps
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$env:RELEASE_VERSION = "test-99.0.2"
+$out7 = pwsh -File "$repoRoot\build.ps1" $b7AppsJson -PrivateAppsPath $b7PrivateJson 2>&1
+$ec7  = $LASTEXITCODE
+$m7   = if (Test-Path "$buildPacks\release-manifest.json") {
+    Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json
+} else { $null }
+$priv7 = if ($m7) { $m7.apps | Where-Object { $_.name -eq "privateapp" } | Select-Object -First 1 } else { $null }
+Assert "[B7] exit 0"                        ($ec7 -eq 0)
+Assert "[B7] privateapp in manifest"        ($null -ne $priv7)
+Assert "[B7] packUrl is local path"         ($priv7 -and $priv7.packUrl -eq $fakeLocalPackZip)
+Assert "[B7] version correct"               ($priv7 -and $priv7.version -eq "2.0.0")
+Assert "[B7] zip NOT copied to packs dir"   (-not (Test-Path "$buildPacks\privateapp-2.0.0.zip"))
+# Missing local pack: build should warn but not fail
+$missingPrivateJson = "C:\tmp\b7-missing.json"
+@(@{ name = "ghost"; version = "1.0.0"; localPack = "C:\nonexistent\ghost-1.0.0.zip" }) | ConvertTo-Json | Set-Content $missingPrivateJson -Encoding UTF8
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$out7b = pwsh -File "$repoRoot\build.ps1" $b7AppsJson -PrivateAppsPath $missingPrivateJson 2>&1
+$ec7b  = $LASTEXITCODE
+$m7b   = if (Test-Path "$buildPacks\release-manifest.json") {
+    Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json
+} else { $null }
+Assert "[B7] missing pack: exit 0"          ($ec7b -eq 0)
+Assert "[B7] missing pack: not in manifest" ($m7b -and -not ($m7b.apps | Where-Object { $_.name -eq "ghost" }))
+Assert "[B7] missing pack: warning shown"   ($out7b -match "not found")
+Remove-Item $fakeLocalPackDir  -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $b7AppsJson        -Force -ErrorAction SilentlyContinue
+Remove-Item $b7PrivateJson     -Force -ErrorAction SilentlyContinue
+Remove-Item $missingPrivateJson -Force -ErrorAction SilentlyContinue
 
 Write-Host "[B6] toolset.ps1 / setup.ps1 — ASCII-only (PS 5.1 compatible)" -ForegroundColor Cyan
 # PowerShell 5.1 reads UTF-8 files without BOM as ANSI (Windows-1252).

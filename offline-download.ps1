@@ -109,6 +109,14 @@ $manifestJson | ConvertTo-Json -Depth 5 | Set-Content "$verDir\release-manifest.
 $manifestJson | ConvertTo-Json -Depth 5 | Set-Content "$DestinationPath\release-manifest.json" -Encoding UTF8
 
 foreach ($app in $manifestJson.apps) {
+    # Local packs (L:\ or UNC path in packUrl) are private — not on GitHub.
+    # Cannot be bundled here; deployer must copy them manually to $DestinationPath.
+    if ($app.PSObject.Properties['packUrl'] -and $app.packUrl -and
+        ($app.packUrl -match '^[A-Za-z]:\\' -or $app.packUrl -match '^\\\\')) {
+        Write-Warning "$($app.pack): private local pack ($($app.packUrl)) - copy manually to $DestinationPath"
+        continue
+    }
+
     # Unchanged packs are not re-uploaded to each release — the manifest carries packUrl
     # pointing to the release where the pack was originally built.  Fall back to the
     # version-constructed URL only for packs that were actually built in this release.
@@ -138,7 +146,6 @@ foreach ($app in $manifestJson.apps) {
         Invoke-Download -Url $packUrl -OutFile $outFile -Description $app.pack
         Write-Host " done" -ForegroundColor Green
     }
-    Copy-Item $outFile "$DestinationPath\$($app.pack)" -Force
 }
 
 foreach ($scriptName in @("toolset.ps1", "setup.ps1")) {

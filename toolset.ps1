@@ -593,6 +593,14 @@ function Get-Pack {
     } else {
         "$repoBase/latest/download/$packName"
     }
+    # Local path (L:\ or UNC \\) - copy directly instead of HTTP download
+    if ($url -match '^[A-Za-z]:\\' -or $url -match '^\\\\') {
+        if (-not (Test-Path $url)) {
+            throw "Local pack not accessible: $url"
+        }
+        Copy-Item $url $tmpFile -Force
+        return $tmpFile
+    }
     try {
         Invoke-Download -Url $url -OutFile $tmpFile -Description $packName
         return $tmpFile
