@@ -100,6 +100,12 @@ try {
     # Replaces Compress-Archive, which silently skips .git directories.
     # Excludes scoop's 'current' junction (a reparse point); it is recreated
     # by 'scoop reset *' after installation.
+    # Persist junctions (data\, bin\, settings\, …) ARE followed when zipping so
+    # that fresh installs receive the default persisted files.  However the
+    # recorded fileCount/totalSize (used by Test-AppIntegrity on clients) is
+    # computed by Measure-SourceNoJunction, which stops at reparse points.
+    # This keeps the counts consistent with what Test-AppIntegrity measures after
+    # scoop activation, even if users later add files to their persist folder.
     function New-ZipPack {
         param([string]$AppDir, [string]$DestZip)
         Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -118,6 +124,34 @@ try {
                     try { $fs.CopyTo($es) } finally { $fs.Dispose(); $es.Dispose() }
                 }
         } finally { $zip.Dispose() }
+    }
+
+    # ── Measure-SourceNoJunction: junction-aware file counter ─────────────
+    # Recursively walks $Path, stopping at reparse points (scoop persist
+    # junctions: data\, bin\, settings\, …) instead of following them.
+    # Also skips the current\ subtree, which is excluded from packs.
+    # Returns a hashtable with Count (file count) and TotalSize (bytes).
+    # Used to record fileCount/totalSize in the release manifest so they match
+    # what Test-AppIntegrity measures on the client after scoop activation.
+    function Measure-SourceNoJunction {
+        param([string]$Path)
+        $count = 0
+        $size  = [long]0
+        Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                # Stop at junctions — do not traverse into scoop persist targets.
+            } elseif ($_.PSIsContainer) {
+                if ($_.Name -ne 'current') {
+                    $sub = Measure-SourceNoJunction $_.FullName
+                    $count += $sub.Count
+                    $size  += $sub.TotalSize
+                }
+            } else {
+                $count++
+                $size += $_.Length
+            }
+        }
+        return @{ Count = $count; TotalSize = $size }
     }
 
     # ── Pack library: enumerate past releases via gh release list ─────────
@@ -283,9 +317,8 @@ try {
             $scoopPackPath = "$packsDir\$scoopPackName"
             Write-Output "  Packing scoop $scoopVer..."
             New-ZipPack -AppDir $scoopAppDir -DestZip $scoopPackPath
-            $zr = [System.IO.Compression.ZipFile]::OpenRead($scoopPackPath)
-            try { $fc = $zr.Entries.Count; $ts = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum }
-            finally { $zr.Dispose() }
+            $m = Measure-SourceNoJunction $scoopAppDir
+            $fc = $m.Count; $ts = $m.TotalSize
             $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $scoopPackName; fileCount = $fc; totalSize = $ts }
         }
     } else {
@@ -392,12 +425,11 @@ try {
             # 'current' is a scoop junction recreated by 'scoop reset *' after extraction;
             # it is excluded by the [/\\]current[/\\] filter in New-ZipPack.
             New-ZipPack -AppDir "build\scoop\apps\$appName" -DestZip $packPath
-            # Read integrity metadata from the freshly-created zip (assembly already loaded by New-ZipPack)
-            $zr = [System.IO.Compression.ZipFile]::OpenRead($packPath)
-            try {
-                $fc = $zr.Entries.Count
-                $ts = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum
-            } finally { $zr.Dispose() }
+            # Integrity metadata is computed from the source dir without following junctions
+            # (scoop persist: data\, bin\, settings\, …) so user modifications to persisted
+            # data do not trigger false integrity failures on the client.
+            $m  = Measure-SourceNoJunction "build\scoop\apps\$appName"
+            $fc = $m.Count; $ts = $m.TotalSize
             $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts }
         }
     }

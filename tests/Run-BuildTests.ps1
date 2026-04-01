@@ -18,7 +18,8 @@
 #>
 param(
     [switch]$NoCleanup,
-    [string]$BaseImage = "ghcr.io/etml-inf/standard-toolset/build-base:latest"
+    [string]$BaseImage = "ghcr.io/etml-inf/standard-toolset/build-base:latest",
+    [switch]$SkipStaticChecks
 )
 
 $ErrorActionPreference = "Stop"

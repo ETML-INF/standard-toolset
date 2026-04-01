@@ -136,7 +136,7 @@ $b7AppsJson = "C:\tmp\b7-apps.json"
 @() | ConvertTo-Json | Set-Content $b7AppsJson -Encoding UTF8   # empty public apps
 if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
 $env:RELEASE_VERSION = "test-99.0.2"
-$out7 = pwsh -File "$repoRoot\build.ps1" $b7AppsJson -PrivateAppsPath $b7PrivateJson 2>&1
+pwsh -File "$repoRoot\build.ps1" $b7AppsJson -PrivateAppsPath $b7PrivateJson 2>&1 | Out-Null
 $ec7  = $LASTEXITCODE
 $m7   = if (Test-Path "$buildPacks\release-manifest.json") {
     Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json

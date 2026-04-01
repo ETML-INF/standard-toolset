@@ -19,6 +19,26 @@ param(
 
 $null = New-Item -ItemType Directory -Force -Path $OutputDir
 
+# Counts files under $Path without following junction (reparse) points — mirrors the
+# measurement used by Test-AppIntegrity (Get-FilesNoJunction) in toolset.ps1.
+# Fake packs have no junctions so the result is identical to a naive count, but using
+# the same method ensures test counts stay consistent with production behaviour.
+function Get-FakePackFileCount {
+    param([string]$Path)
+    $count = 0; $size = [long]0
+    Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            # Stop at junctions — never follow into persist targets.
+        } elseif ($_.PSIsContainer) {
+            $sub = Get-FakePackFileCount $_.FullName
+            $count += $sub.Count; $size += $sub.TotalSize
+        } else {
+            $count++; $size += $_.Length
+        }
+    }
+    return @{ Count = $count; TotalSize = $size }
+}
+
 $manifestApps = @()
 
 foreach ($app in $Apps) {
@@ -33,6 +53,12 @@ foreach ($app in $Apps) {
     $null = New-Item -ItemType Directory -Force -Path $curDir
     @{ version = $version } | ConvertTo-Json | Set-Content (Join-Path $curDir "manifest.json") -Encoding UTF8
 
+    # Count source files before compression (without following junctions) so the recorded
+    # fileCount/totalSize match what Test-AppIntegrity measures on the installed app dir.
+    $m = Get-FakePackFileCount (Join-Path $tmpDir $name)
+    $fileCount = $m.Count
+    $totalSize = $m.TotalSize
+
     $packPath = Join-Path $OutputDir $packName
     Compress-Archive -Path (Join-Path $tmpDir $name) -DestinationPath $packPath -Force
     # Strip read-only attributes before removal (Compress-Archive can leave them).
@@ -41,13 +67,6 @@ foreach ($app in $Apps) {
         ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
     try { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
-    # Read integrity metadata from the freshly-created zip
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $zr = [System.IO.Compression.ZipFile]::OpenRead($packPath)
-    try {
-        $fileCount = $zr.Entries.Count
-        $totalSize = [long]($zr.Entries | Measure-Object -Property Length -Sum).Sum
-    } finally { $zr.Dispose() }
     $manifestApps += [ordered]@{ name = $name; version = $version; pack = $packName; fileCount = $fileCount; totalSize = $totalSize }
 }
 

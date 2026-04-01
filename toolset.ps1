@@ -487,22 +487,44 @@ function Get-ReleaseManifest {
 }
 
 function Get-LocalAppVersions {
+    <#
+    .SYNOPSIS
+        Returns a hashtable of installed app name -> version for all apps under scoop\apps\.
+    .DESCRIPTION
+        Always checks versioned subdirectories first (highest name, descending sort),
+        so that a partially-updated installation -- where a new version directory has been
+        extracted but the current\ junction still points to the old version -- is reported
+        correctly and does not trigger a needless re-download.
+
+        Consistency note: Test-AppIntegrity also checks the versioned directory by
+        $App.version first, so the integrity check validates exactly the same directory
+        that this function reports. Incomplete version directories are therefore caught
+        by the ToRepair path rather than being silently skipped.
+
+        Falls back to current\manifest.json only when no versioned subdirectory exists
+        (e.g., unusual scoop layouts in test fixtures).
+    .PARAMETER toolsetdir
+        Root of the toolset installation (contains scoop\).
+    .OUTPUTS
+        Hashtable of app name -> version string.
+    #>
     param([string]$toolsetdir)
     $result = @{}
     $appsDir = "$toolsetdir\scoop\apps"
     if (-not (Test-Path $appsDir)) { return $result }
     Get-ChildItem $appsDir -Directory | ForEach-Object {
         $appDir = $_.FullName
-        # current\ is a junction created by "scoop reset *" during Invoke-Activate.
-        # On a freshly extracted toolset (L: copy, manual zip) it doesn't exist yet  -
-        # fall back to the versioned subdirectory so update doesn't re-download everything.
-        $mPath = "$appDir\current\manifest.json"
-        if (-not (Test-Path $mPath)) {
-            $vDir = Get-ChildItem $appDir -Directory |
-                        Where-Object { $_.Name -ne 'current' } |
-                        Sort-Object Name -Descending |
-                        Select-Object -First 1
-            if ($vDir) { $mPath = "$($vDir.FullName)\manifest.json" }
+        # Prefer the highest versioned dir over current\ (which may still point to the
+        # previous version while the new version dir is already fully extracted).
+        $vDir = Get-ChildItem $appDir -Directory |
+                    Where-Object { $_.Name -ne 'current' } |
+                    Sort-Object Name -Descending |
+                    Select-Object -First 1
+        $mPath = if ($vDir) {
+            "$($vDir.FullName)\manifest.json"
+        } else {
+            # No versioned dir -- unusual layout; fall back to current\ (test/legacy).
+            "$appDir\current\manifest.json"
         }
         if (Test-Path $mPath) {
             try { $result[$_.Name] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
@@ -633,7 +655,54 @@ function Get-Pack {
     }
 }
 
+function Get-FilesNoJunction {
+    <#
+    .SYNOPSIS
+        Returns all files under a directory without following junction (reparse) points.
+    .DESCRIPTION
+        Recursively enumerates a directory tree, stopping at any reparse point instead of
+        traversing into it.  This ensures that scoop persist junctions (data\, bin\,
+        settings\, etc.) are not followed, so files added by users to the persist folder
+        (app settings, installed extensions, etc.) do not inflate the file count and
+        break integrity checks.
+        Used by Test-AppIntegrity for consistent measurement both before and after
+        scoop activation.
+    .PARAMETER Path
+        Root directory to enumerate.
+    .OUTPUTS
+        System.IO.FileInfo objects for every file that is not inside a reparse point.
+    #>
+    param([string]$Path)
+    Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            # Stop here -- do not traverse into junctions or symlinks.
+        } elseif ($_.PSIsContainer) {
+            Get-FilesNoJunction $_.FullName
+        } else {
+            $_
+        }
+    }
+}
+
 function Test-AppIntegrity {
+    <#
+    .SYNOPSIS
+        Returns $true when the installed app directory matches the expected file count and total size.
+    .DESCRIPTION
+        Compares the number of files and their combined uncompressed size against the
+        fileCount and totalSize fields in the release manifest.  Files inside junction
+        (reparse) points -- scoop persist directories such as data\, bin\, settings\ --
+        are excluded from the count so that user modifications to persisted data do not
+        cause false integrity failures.
+        Old manifests that lack fileCount/totalSize are treated as healthy (graceful
+        degradation for legacy releases).
+    .PARAMETER App
+        App entry object from the release manifest (must have name, version, fileCount, totalSize).
+    .PARAMETER toolsetdir
+        Root of the toolset installation (contains scoop\).
+    .OUTPUTS
+        Boolean
+    #>
     param([object]$App, [string]$toolsetdir)
     # Graceful degradation: old manifests without metadata are treated as healthy
     if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) { return $true }
@@ -643,13 +712,59 @@ function Test-AppIntegrity {
         $versionDir = "$toolsetdir\scoop\apps\$($App.name)\current"
     }
     if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) { return $false }
-    $files = @(Get-ChildItem $versionDir -Recurse -File -Force -ErrorAction SilentlyContinue)
+    # Use Get-FilesNoJunction so that user modifications to scoop persist directories
+    # (data\, settings\, bin\ junctions) don't inflate the count.
+    $files = @(Get-FilesNoJunction $versionDir)
     if ($files.Count -ne [int]$App.fileCount) { return $false }
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     return $size -eq [long]$App.totalSize
 }
 
+function Remove-ReparsePoints {
+    <#
+    .SYNOPSIS
+        Removes all reparse points (junction links) under a directory without following them.
+    .DESCRIPTION
+        Recursively enumerates a directory tree, stopping at reparse points instead of
+        traversing into them, then removes each link with Remove-Item (no -Recurse) so the
+        junction target (e.g. scoop\persist) is never touched.
+        This is required before Remove-Item -Recurse on a versioned app dir because
+        PS5.1 / .NET 4.x follow junctions during recursive enumeration and raise
+        "Access Denied" when the persist target contains files.
+    .PARAMETER Path
+        Root directory to search for reparse points.
+    .OUTPUTS
+        None
+    #>
+    param([string]$Path)
+    Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            # Remove-Item without -Recurse removes only the junction link, not the target.
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+        } elseif ($_.PSIsContainer) {
+            Remove-ReparsePoints $_.FullName
+        }
+    }
+}
+
 function Remove-StaleVersionDirs {
+    <#
+    .SYNOPSIS
+        Removes old versioned app directories left over after a toolset update.
+    .DESCRIPTION
+        Scoop keeps every versioned directory until explicitly cleaned. After applying a
+        delta pack the old version dirs are stale and can be removed. Junction links
+        (scoop persist: data\, bin\, settings\, etc.) must be stripped before
+        Remove-Item -Recurse or PS5.1 raises "Access Denied" by following them.
+    .PARAMETER toolsetdir
+        Root of the toolset installation (contains scoop\).
+    .PARAMETER AppName
+        Scoop app name (directory under scoop\apps\).
+    .PARAMETER KeepVersion
+        Version string to preserve; all other versioned dirs are removed.
+    .OUTPUTS
+        None
+    #>
     param([string]$toolsetdir, [string]$AppName, [string]$KeepVersion)
     $appDir = "$toolsetdir\scoop\apps\$AppName"
     if (-not (Test-Path $appDir -ErrorAction SilentlyContinue)) { return }
@@ -660,21 +775,17 @@ function Remove-StaleVersionDirs {
             $name = $_.Name
             # Remove-Item -Recurse fails with "Access Denied" in PS5.1 on dirs that contain
             # junction points (scoop persist junctions: data\, bin\, Codecs\, etc.).
-            # Fix: strip junction links first using Directory.Delete() without recursion
-            # (removes only the reparse point, never follows into the target), then the
-            # remaining real content is removable by Remove-Item -Recurse.
-            Get-ChildItem $dir -Recurse -Force -ErrorAction SilentlyContinue |
-                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
-                ForEach-Object { [System.IO.Directory]::Delete($_.FullName) }
+            # Fix: strip junction links first (Remove-ReparsePoints recurses into real
+            # sub-dirs only, never follows junctions), then the remaining real content
+            # is removable by Remove-Item -Recurse.
+            Remove-ReparsePoints $dir
             Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $dir) {
                 # Still present: locked file (app running).  Rename out of the way so the
                 # new version dir is unambiguous.  Next run will retry the removal.
                 $tagged = "$dir-toBeDeleted"
                 if (Test-Path $tagged) {
-                    Get-ChildItem $tagged -Recurse -Force -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
-                        ForEach-Object { [System.IO.Directory]::Delete($_.FullName) }
+                    Remove-ReparsePoints $tagged
                     Remove-Item $tagged -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 try {

@@ -469,6 +469,64 @@ Assert "[29] old version dir removed" (-not (Test-Path "$appDir29\1.0.0"))
 Assert "[29] persist data untouched"  (Test-Path $persistDir29)
 Remove-TestDir $d29, $ps29
 
+Write-Host "[30] Version detection — versioned dir preferred over stale current\ junction" -ForegroundColor Cyan
+# Scenario: the new version dir has already been extracted (e.g. from a prior partial update)
+# but the current\ junction still points to the old version.  Get-LocalAppVersions must
+# detect v2.0.0 from the versioned dir and NOT trigger a re-download.
+$d30 = "C:\tmp\s30d"; $ps30 = "C:\tmp\s30p"
+New-Item -Force -ItemType Directory $ps30 | Out-Null
+# Release manifest says app1 is at v2.0.0.  No fileCount — graceful degradation so the test
+# focuses purely on version detection, not integrity.
+@{
+    version = "99.0.0"
+    apps    = @(@{ name = "app1"; version = "2.0.0"; pack = "app1-2.0.0.zip" })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps30\release-manifest.json" -Encoding UTF8
+# Old version dir
+$v1Dir30 = "$d30\scoop\apps\app1\1.0.0"
+New-Item -Force -ItemType Directory $v1Dir30 | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$v1Dir30\manifest.json" -Encoding UTF8
+# New version dir already present (fully populated — simulates successful prior extraction)
+$v2Dir30 = "$d30\scoop\apps\app1\2.0.0"
+New-Item -Force -ItemType Directory $v2Dir30 | Out-Null
+@{ version = "2.0.0" } | ConvertTo-Json | Set-Content "$v2Dir30\manifest.json" -Encoding UTF8
+# current\ junction still points to old v1 dir (not yet updated by scoop reset)
+New-Item -ItemType Junction -Path "$d30\scoop\apps\app1\current" -Value $v1Dir30 | Out-Null
+# No zip in pack source — if a download is attempted the test will FAIL with a download error
+$out30 = pwsh -File $toolkit update -Path $d30 `
+    -ManifestSource "$ps30\release-manifest.json" -PackSource $ps30 -NoInteraction 2>&1
+$ec30  = $LASTEXITCODE
+Assert "[30] exit 0 (v2.0.0 detected without download)" ($ec30 -eq 0)
+Assert "[30] [=] shown (app is up to date)"             ($out30 -match "\[=\]")
+Assert "[30] no FAILED in output"                       ($out30 -notmatch "FAILED")
+Remove-TestDir $d30, $ps30
+
+Write-Host "[31] Integrity — persist junction with user files does not trigger repair" -ForegroundColor Cyan
+# Scenario: an app is installed cleanly (fileCount=1: manifest.json only).  Scoop then
+# creates a persist junction inside the versioned dir pointing to a user-writable directory.
+# Users add files to that directory (settings, history, etc.).  Get-FilesNoJunction must
+# stop at the junction so the extra files do not inflate the count and falsely flag repair.
+$d31 = "C:\tmp\s31d"; $ps31 = "C:\tmp\s31p"; $persist31 = "C:\tmp\s31persist"
+& $helper -OutputDir $ps31 -Apps @(@{Name="app1"; Version="1.0.0"})
+New-Item -Force -ItemType Directory $d31 | Out-Null
+# Fresh install — fileCount=1 (manifest.json only)
+pwsh -File $toolkit update -Path $d31 `
+    -ManifestSource "$ps31\release-manifest.json" -PackSource $ps31 -NoInteraction
+# Simulate scoop persist: replace a subdir with a junction into a user-writable location
+New-Item -Force -ItemType Directory $persist31 | Out-Null
+Set-Content "$persist31\user-settings.json" "{}" -Encoding UTF8          # user file 1
+Set-Content "$persist31\user-history.txt"   "history" -Encoding UTF8     # user file 2
+New-Item -ItemType Junction -Path "$d31\scoop\apps\app1\current\userdata" -Value $persist31 | Out-Null
+# Remove the zip — if integrity fails and a repair is attempted, the test will FAILED
+Remove-Item "$ps31\app1-1.0.0.zip" -Force
+$out31 = pwsh -File $toolkit update -Path $d31 `
+    -ManifestSource "$ps31\release-manifest.json" -PackSource $ps31 -NoInteraction 2>&1
+$ec31  = $LASTEXITCODE
+Assert "[31] exit 0 (persist files ignored)"                    ($ec31 -eq 0)
+Assert "[31] [=] shown (integrity passes despite extra files)"  ($out31 -match "\[=\]")
+Assert "[31] no FAILED in output"                               ($out31 -notmatch "FAILED")
+Assert "[31] persist data untouched"                            (Test-Path "$persist31\user-settings.json")
+Remove-TestDir $d31, $ps31, $persist31
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) {

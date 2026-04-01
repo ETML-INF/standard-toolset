@@ -52,12 +52,13 @@ function Remove-TestDir {
     param([string[]]$Paths)
     foreach ($p in $Paths) {
         if (-not (Test-Path $p)) { continue }
-        # Remove junction links first: Remove-Item -Recurse fails with "Access Denied" in
-        # PS5.1 on trees containing junction points.  Directory.Delete() without recursion
-        # removes only the reparse point link, never the junction's target content.
+        # Remove junction links without following them.
+        # [System.IO.Directory]::Delete() fails with "Access Denied" on non-empty junction
+        # targets (e.g. a persist dir that contains user files).
+        # Remove-Item without -Recurse removes only the junction link, never the target.
         Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue |
             Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
-            ForEach-Object { [System.IO.Directory]::Delete($_.FullName) }
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
         Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

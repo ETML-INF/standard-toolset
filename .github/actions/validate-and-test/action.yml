@@ -7,9 +7,9 @@ description: >
 runs:
   using: composite
   steps:
-    - name: Validate apps.json
+    - name: Static checks (lint, ASCII, apps.json)
       shell: pwsh
-      run: if (-not (Get-Content -Raw apps.json | Test-Json)) { exit 1 }
+      run: pwsh tests/Test-StaticChecks.ps1
 
     - name: Run update mode tests
       shell: pwsh
