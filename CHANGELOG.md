@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.2](https://github.com/ETML-INF/standard-toolset/compare/v2.2.1...v2.2.2) (2026-04-01)
+
+
+### Bug Fixes
+
+* **junctions:** correctly remove junctions ([ae4a698](https://github.com/ETML-INF/standard-toolset/commit/ae4a698a1c0007659348ba63a0d12cc82565a2e3))
+* **versions:** recreate current junction to force scoop reset use latest versions ([ae4a698](https://github.com/ETML-INF/standard-toolset/commit/ae4a698a1c0007659348ba63a0d12cc82565a2e3))
+
 ## [2.2.1](https://github.com/ETML-INF/standard-toolset/compare/v2.2.0...v2.2.1) (2026-03-30)
 
 
