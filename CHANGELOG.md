@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.3](https://github.com/ETML-INF/standard-toolset/compare/v2.2.2...v2.2.3) (2026-04-01)
+
+
+### Bug Fixes
+
+* **persist:** differenciate persist junction from standard junction ([3b0829d](https://github.com/ETML-INF/standard-toolset/commit/3b0829dfc5dca15b275fb833d0f34d2834a292db))
+* **status:** not only look at current to see available versions ([3b0829d](https://github.com/ETML-INF/standard-toolset/commit/3b0829dfc5dca15b275fb833d0f34d2834a292db))
+
 ## [2.2.2](https://github.com/ETML-INF/standard-toolset/compare/v2.2.1...v2.2.2) (2026-04-01)
 
 
