@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.1](https://github.com/ETML-INF/standard-toolset/compare/v2.2.0...v2.2.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* **npm:** replace build path with tool path... ([f1e36d0](https://github.com/ETML-INF/standard-toolset/commit/f1e36d04708d3428af1d852a13329ca52e608813))
+* **ps5:** correctly pass switch for ps5 ([7b16985](https://github.com/ETML-INF/standard-toolset/commit/7b169857bd4fc86c11b5bf77e5c026e07b9d81f8))
+
 ## [2.2.0](https://github.com/ETML-INF/standard-toolset/compare/v2.1.3...v2.2.0) (2026-03-30)
 
 
