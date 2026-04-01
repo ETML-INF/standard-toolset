@@ -87,7 +87,8 @@ function Set-GitSafeDirectory {
 
     $content = if (Test-Path $gitconfigPath) { @(Get-Content $gitconfigPath) } else { @() }
 
-    $safeIndex = ($content | Select-String "^\[safe\]$" | Select-Object -First 1).LineNumber - 1
+    $safeMatch = $content | Select-String "^\[safe\]$" | Select-Object -First 1
+    $safeIndex = if ($safeMatch) { $safeMatch.LineNumber - 1 } else { -1 }
     $dirIndex = if ($safeIndex -ge 0) {
         if (($safeIndex + 1) -gt ($content.Length - 1)) {
             -1
@@ -146,6 +147,29 @@ function Invoke-Activate {
             $junctionPath = "$scoopdir\apps\scoop\current"
             if (Test-Path $junctionPath) { [System.IO.Directory]::Delete($junctionPath) }
             New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
+        }
+    }
+    # Pre-update current\ junctions from the release manifest before scoop reset *.
+    # scoop reset reads the version from current\manifest.json; if current\ still points
+    # to the old version (because the old dir could not be fully removed due to locked
+    # files), scoop would re-link to the old version even though the new versioned dir
+    # was just extracted.  Pointing current\ at the new version first fixes that.
+    $localManifestPath = Join-Path $toolsetdir "release-manifest.json"
+    if (Test-Path $localManifestPath -ErrorAction SilentlyContinue) {
+        $mfForReset = Get-Content $localManifestPath -Raw | ConvertFrom-Json
+        foreach ($appEntry in $mfForReset.apps) {
+            if ($appEntry.name -eq 'scoop') { continue }
+            # version may be absent on legacy/partial manifest entries - skip them
+            if (-not $appEntry.PSObject.Properties['version']) { continue }
+            $appDir     = "$scoopdir\apps\$($appEntry.name)"
+            $verDir     = "$appDir\$($appEntry.version)"
+            if (-not (Test-Path $verDir -ErrorAction SilentlyContinue)) { continue }
+            $jPath      = "$appDir\current"
+            $jItem      = Get-Item $jPath -ErrorAction SilentlyContinue
+            $isJunction = $jItem -and ($jItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+            if ($jItem -and -not $isJunction) { continue }   # real dir, do not touch
+            if ($isJunction) { [System.IO.Directory]::Delete($jPath) }
+            New-Item -ItemType Junction -Path $jPath -Value $verDir | Out-Null
         }
     }
     if (Test-Path $scoopPs1 -ErrorAction SilentlyContinue) {
@@ -632,8 +656,36 @@ function Remove-StaleVersionDirs {
     Get-ChildItem $appDir -Directory -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ne $KeepVersion -and $_.Name -ne 'current' } |
         ForEach-Object {
-            Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Verbose "  Removed stale $AppName\$($_.Name)"
+            $dir  = $_.FullName
+            $name = $_.Name
+            # Remove-Item -Recurse fails with "Access Denied" in PS5.1 on dirs that contain
+            # junction points (scoop persist junctions: data\, bin\, Codecs\, etc.).
+            # Fix: strip junction links first using Directory.Delete() without recursion
+            # (removes only the reparse point, never follows into the target), then the
+            # remaining real content is removable by Remove-Item -Recurse.
+            Get-ChildItem $dir -Recurse -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                ForEach-Object { [System.IO.Directory]::Delete($_.FullName) }
+            Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $dir) {
+                # Still present: locked file (app running).  Rename out of the way so the
+                # new version dir is unambiguous.  Next run will retry the removal.
+                $tagged = "$dir-toBeDeleted"
+                if (Test-Path $tagged) {
+                    Get-ChildItem $tagged -Recurse -Force -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                        ForEach-Object { [System.IO.Directory]::Delete($_.FullName) }
+                    Remove-Item $tagged -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                try {
+                    Rename-Item $dir $tagged -ErrorAction Stop
+                    Write-Warning "  $AppName\$name is locked - renamed to $name-toBeDeleted (remove when app is closed)"
+                } catch {
+                    Write-Warning "  $AppName\$name could not be removed or renamed: $_"
+                }
+            } else {
+                Write-Verbose "  Removed stale $AppName\$name"
+            }
         }
 }
 
@@ -673,34 +725,16 @@ function Install-Pack {
     New-Item -ItemType Directory -Force -Path $appsDir | Out-Null
 
     # Pack root contains top-level app dirs (e.g. git\, vscode\); each holds one or more
-    # versioned subdirs (e.g. vscode\1.88.0\). We delete the entire app dir before installing:
-    #   - update (1.87->1.88): removes the old orphaned version dir (different folder, no conflict
-    #     without cleanup, but wastes space indefinitely  - rollback is not supported in our model)
-    #   - repair (same version): Expand-Archive -Force overwrites matching files but never deletes
-    #     files removed between pack builds; pre-removal guarantees a bit-perfect install
+    # versioned subdirs (e.g. vscode\1.88.0\).  We do NOT pre-remove the app dir:
+    # the new versioned subdir is extracted first so the app remains usable during the
+    # update, and so the current\ junction can be pointed at the new version before the
+    # old dir is removed.  Remove-StaleVersionDirs handles cleanup of the old version dir
+    # after extraction, with a rename fallback for locked files.
 
     if (Test-Path $PackPath -PathType Container) {
         # Pre-extracted pack (L: directory)  - top-level dirs are app names, same as zip root
-        Get-ChildItem $PackPath -Directory | ForEach-Object {
-            $dest = Join-Path $appsDir $_.Name
-            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-        }
         Copy-Item "$PackPath\*" $appsDir -Recurse -Force
     } else {
-        # Zip pack  - open to enumerate top-level dir names, then remove before expanding
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($PackPath)
-        try {
-            $topDirs = @{}
-            foreach ($e in $zip.Entries) {
-                $first = ($e.FullName -replace '\\', '/').Split('/')[0]
-                if ($first) { $topDirs[$first] = $true }
-            }
-        } finally { $zip.Dispose() }
-        foreach ($name in $topDirs.Keys) {
-            $dest = Join-Path $appsDir $name
-            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-        }
         Expand-Archive -Path $PackPath -DestinationPath $appsDir -Force
     }
 }

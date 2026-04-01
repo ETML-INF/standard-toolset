@@ -433,6 +433,42 @@ Assert "[28] scoop.ps1 accessible"   (Test-Path "$d28\scoop\apps\scoop\current\b
 Assert "[28] app1 installed"         (Test-Path "$d28\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d28, $ps28
 
+Write-Host "[29] Update — old version with scoop-style junctions (persist + current) removed cleanly" -ForegroundColor Cyan
+# Reproduces the prod "Access Denied" failure: Remove-Item -Recurse cannot traverse a dir
+# tree that contains junction points.  Mimics a real scoop install:
+#   scoop\apps\app1\1.0.0\           versioned dir
+#   scoop\apps\app1\1.0.0\data\      junction -> scoop\persist\app1\data\  (persist)
+#   scoop\apps\app1\current\         junction -> scoop\apps\app1\1.0.0\
+$d29  = "C:\tmp\s29d"; $ps29 = "C:\tmp\s29p"
+New-Item -Force -ItemType Directory $ps29 | Out-Null
+# New pack uses real versioned-dir layout (no current\ in zip, mirrors build.ps1 output)
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip29 = [System.IO.Compression.ZipFile]::Open("$ps29\app1-2.0.0.zip", [System.IO.Compression.ZipArchiveMode]::Create)
+$ze29  = $zip29.CreateEntry("app1/2.0.0/manifest.json", [System.IO.Compression.CompressionLevel]::Optimal)
+$sw29  = [System.IO.StreamWriter]::new($ze29.Open()); $sw29.Write('{"version":"2.0.0"}'); $sw29.Dispose()
+$zip29.Dispose()
+@{ version = "99.0.0"; apps = @(@{ name = "app1"; version = "2.0.0"; pack = "app1-2.0.0.zip" }) } |
+    ConvertTo-Json -Depth 5 | Set-Content "$ps29\release-manifest.json" -Encoding UTF8
+# Old install: versioned dir with a persist junction inside + current\ junction
+$appDir29     = "$d29\scoop\apps\app1"
+$verDir29old  = "$appDir29\1.0.0"
+$persistDir29 = "$d29\scoop\persist\app1\data"
+New-Item -Force -ItemType Directory $verDir29old  | Out-Null
+New-Item -Force -ItemType Directory $persistDir29 | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$verDir29old\manifest.json" -Encoding UTF8
+New-Item -ItemType Junction -Path "$verDir29old\data" -Value $persistDir29 | Out-Null
+New-Item -ItemType Junction -Path "$appDir29\current" -Value $verDir29old  | Out-Null
+$out29 = pwsh -File $toolkit update -Path $d29 `
+    -ManifestSource "$ps29\release-manifest.json" -PackSource $ps29 -NoInteraction 2>&1
+$ec29  = $LASTEXITCODE
+$ver29 = try { (Get-Content "$d29\scoop\apps\app1\current\manifest.json" -Raw | ConvertFrom-Json).version } catch { "" }
+Assert "[29] exit 0"                  ($ec29 -eq 0)
+Assert "[29] no FAILED in output"     ($out29 -notmatch "FAILED")
+Assert "[29] v2.0.0 current"          ($ver29 -eq "2.0.0")
+Assert "[29] old version dir removed" (-not (Test-Path "$appDir29\1.0.0"))
+Assert "[29] persist data untouched"  (Test-Path $persistDir29)
+Remove-TestDir $d29, $ps29
+
 Write-Host ""
 Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
 if ($fail -gt 0) {

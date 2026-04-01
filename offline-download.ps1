@@ -127,6 +127,7 @@ foreach ($app in $manifestJson.apps) {
     }
     $outFile = "$verDir\$($app.pack)"
     $needsDownload = $true
+    $remoteSize = -2   # sentinel: not yet fetched (-1 = fetched but unavailable)
     if ((Test-Path $outFile) -and (Get-Item $outFile).Length -gt 0) {
         $localSize  = (Get-Item $outFile).Length
         $remoteSize = Get-RemoteFileSize $packUrl
@@ -139,6 +140,25 @@ foreach ($app in $manifestJson.apps) {
         } else {
             Write-Warning "$($app.pack): size mismatch (local $localSize B vs remote $remoteSize B) - re-downloading"
             Remove-Item $outFile -Force
+        }
+    }
+    if ($needsDownload) {
+        # Before hitting the network, look for the same pack in sibling version dirs.
+        # Pack filenames encode the app version (e.g. jq-1.7.1.zip), so a same-named file
+        # in another version folder is identical content — copy it instead of downloading.
+        $cached = Get-ChildItem $DestinationPath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $Version } |
+            ForEach-Object { "$($_.FullName)\$($app.pack)" } |
+            Where-Object { (Test-Path $_) -and (Get-Item $_).Length -gt 0 } |
+            Select-Object -First 1
+        if ($cached) {
+            $cachedSize = (Get-Item $cached).Length
+            if ($remoteSize -eq -2) { $remoteSize = Get-RemoteFileSize $packUrl }
+            if ($remoteSize -le 0 -or $cachedSize -eq $remoteSize) {
+                Write-Host "  $($app.pack)... copied from $(Split-Path (Split-Path $cached -Parent) -Leaf) ($([math]::Round($cachedSize/1MB,1)) MB)" -ForegroundColor DarkGray
+                Copy-Item $cached $outFile -Force
+                $needsDownload = $false
+            }
         }
     }
     if ($needsDownload) {
