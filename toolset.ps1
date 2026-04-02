@@ -440,6 +440,51 @@ function Invoke-Download {
     }
 }
 
+function Merge-PrivateApps {
+    <#
+    .SYNOPSIS
+        Merges private app entries from L:\toolset\private-apps.json into a manifest object.
+    .DESCRIPTION
+        Private apps are defined in private-apps.json (never committed to git) with a
+        'localPack' field pointing to a zip on L:\.  They are included in the release
+        manifest when build.ps1 runs with L:\ access, but CI builds (no L:\ access) omit
+        them.  This function ensures private apps are always present when L:\ is reachable,
+        regardless of whether the manifest was built with or without L:\ access.
+        Apps already present in the manifest (by name) are not duplicated.
+    .PARAMETER Manifest
+        PSCustomObject returned by ConvertFrom-Json for the release manifest.
+    .PARAMETER LDrivePath
+        Root of the local toolset network drive.  Defaults to L:\toolset.
+    .OUTPUTS
+        The same manifest object, with private apps appended to the apps array.
+    #>
+    param([object]$Manifest, [string]$LDrivePath = "L:\toolset")
+    $privateAppsPath = "$LDrivePath\private-apps.json"
+    if (-not (Test-Path $privateAppsPath -ErrorAction SilentlyContinue)) { return $Manifest }
+    try {
+        $privateApps  = Get-Content $privateAppsPath -Raw | ConvertFrom-Json
+        $existingNames = @($Manifest.apps | ForEach-Object { $_.name })
+        $added = 0
+        foreach ($pa in $privateApps) {
+            if (-not $pa.PSObject.Properties['name'])      { continue }
+            if ($pa.name -in $existingNames)               { continue }
+            if (-not $pa.PSObject.Properties['localPack']) { continue }
+            $lpFile = Split-Path $pa.localPack -Leaf
+            $lpVer  = if ($pa.PSObject.Properties['version']) { $pa.version } `
+                      elseif ($lpFile -match '-(\d[\d.]*)\.zip$') { $Matches[1] } `
+                      else { 'unknown' }
+            $entry = [pscustomobject]@{ name = $pa.name; version = $lpVer; pack = $lpFile; packUrl = $pa.localPack }
+            $Manifest.apps = @($Manifest.apps) + @($entry)
+            $existingNames += $pa.name
+            $added++
+        }
+        if ($added -gt 0) { Write-Host "  $added private app(s) merged from $privateAppsPath" -ForegroundColor DarkGray }
+    } catch {
+        Write-Warning "Could not load private apps from $privateAppsPath : $_"
+    }
+    return $Manifest
+}
+
 function Get-ReleaseManifest {
     param(
         [string]$ManifestSource,
@@ -479,13 +524,13 @@ function Get-ReleaseManifest {
                     Write-Warning "L:\toolset has v$($manifest.version) but GitHub has v$($ghManifest.version). Run offline-download.ps1 to refresh the network drive."
                     if (-not $NoInteraction) {
                         $answer = Read-Host "Use GitHub version v$($ghManifest.version) now instead? [Y/N]"
-                        if ($answer -match '^[Yy]$') { return $ghManifest }
+                        if ($answer -match '^[Yy]$') { return Merge-PrivateApps $ghManifest $LDrivePath }
                     }
                 }
             } catch { Write-Verbose "GitHub freshness check skipped: $_" }
         }
 
-        return $manifest
+        return Merge-PrivateApps $manifest $LDrivePath
     }
 
     # L: not available  - decide whether to try GitHub
@@ -503,7 +548,7 @@ function Get-ReleaseManifest {
         "$repoBase/download/v$Version/release-manifest.json"
     }
     try {
-        return Invoke-RestMethod $url -ErrorAction Stop
+        return Merge-PrivateApps (Invoke-RestMethod $url -ErrorAction Stop) $LDrivePath
     } catch {
         throw "GitHub manifest fetch failed: $_"
     }
@@ -691,12 +736,38 @@ function Get-Pack {
                 $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
                 if ($ans -notmatch '^[Yy]$') { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $lDirPath }
             }
-            if (Test-Path $lPath) { Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline; return $lPath }
+            if (Test-Path $lPath) {
+                Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
+                Copy-Item $lPath $tmpFile -Force
+                return $tmpFile
+            }
         } else {
             Write-Warning "Pre-extracted $packDir version mismatch  - falling back to zip"
         }
     }
-    if (Test-Path $lPath) { Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline; return $lPath }
+    if (Test-Path $lPath) {
+        Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
+        Copy-Item $lPath $tmpFile -Force
+        return $tmpFile
+    }
+
+    # Pack not found in the versioned L:\ folder.  Scan all other version subfolders of
+    # LDrivePath (newest first) -- the same pack file may already exist in an older release
+    # folder (reused packs keep their filename across releases).  This avoids a GitHub
+    # round-trip for packs that are already on the local network drive.
+    if (Test-Path $LDrivePath -PathType Container) {
+        $otherFolders = Get-ChildItem $LDrivePath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $Version } |
+            Sort-Object Name -Descending
+        foreach ($folder in $otherFolders) {
+            $altPath = Join-Path $folder.FullName $packName
+            if (Test-Path $altPath) {
+                Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
+                Copy-Item $altPath $tmpFile -Force
+                return $tmpFile
+            }
+        }
+    }
 
     $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
     # packUrl is written by build.ps1 for packs reused from a prior release  - it points to the
