@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.5](https://github.com/ETML-INF/standard-toolset/compare/v2.2.4...v2.2.5) (2026-04-02)
+
+
+### Bug Fixes
+
+* **cmder:** add exclude folder attribute ([9822f02](https://github.com/ETML-INF/standard-toolset/commit/9822f027f7edb053dc2c003e1192fc3dfad239cb))
+* **junction:** less error prone removal procedure ([9822f02](https://github.com/ETML-INF/standard-toolset/commit/9822f027f7edb053dc2c003e1192fc3dfad239cb))
+
 ## [2.2.4](https://github.com/ETML-INF/standard-toolset/compare/v2.2.3...v2.2.4) (2026-04-02)
 
 
