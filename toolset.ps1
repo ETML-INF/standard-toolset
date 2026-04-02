@@ -145,7 +145,7 @@ function Invoke-Activate {
         if ($scoopVerDir) {
             Write-Host "Bootstrapping scoop current\ junction ($($scoopVerDir.Name))..." -ForegroundColor Green
             $junctionPath = "$scoopdir\apps\scoop\current"
-            if (Test-Path $junctionPath) { [System.IO.Directory]::Delete($junctionPath) }
+            if (Test-Path $junctionPath) { Remove-Item -LiteralPath $junctionPath -Force }
             New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
         }
     }
@@ -168,7 +168,7 @@ function Invoke-Activate {
             $jItem      = Get-Item $jPath -ErrorAction SilentlyContinue
             $isJunction = $jItem -and ($jItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
             if ($jItem -and -not $isJunction) { continue }   # real dir, do not touch
-            if ($isJunction) { [System.IO.Directory]::Delete($jPath) }
+            if ($isJunction) { Remove-Item -LiteralPath $jPath -Force }
             New-Item -ItemType Junction -Path $jPath -Value $verDir | Out-Null
         }
     }
@@ -197,8 +197,9 @@ function Invoke-Activate {
                 if (-not $item) { continue }
                 try {
                     if ($item.PSIsContainer) {
-                        # Directory junction  - Delete() removes only the link, not persist contents
-                        [System.IO.Directory]::Delete($item.FullName)
+                        # Junction link -- Remove-Item without -Recurse removes only the
+                        # reparse point, never the persist target, even when non-empty.
+                        Remove-Item -LiteralPath $item.FullName -Force
                     } else {
                         Remove-Item $item.FullName -Force
                     }
@@ -486,6 +487,30 @@ function Get-ReleaseManifest {
     }
 }
 
+function Get-ScoopVersionFromBinary {
+    <#
+    .SYNOPSIS
+        Tries to determine the scoop version by invoking its PowerShell script.
+    .DESCRIPTION
+        Calls scoop.ps1 --version in a child process and parses the semver from the output.
+        Returns the version string, or $null if it cannot be determined.
+    .PARAMETER ScoopBin
+        Full path to scoop.ps1 (e.g. scoop\apps\scoop\current\bin\scoop.ps1).
+    .OUTPUTS
+        Version string, or $null.
+    #>
+    param([string]$ScoopBin)
+    if (-not (Test-Path $ScoopBin -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $raw = & powershell.exe -NoProfile -NonInteractive -Command `
+            "& '$ScoopBin' --version 2>&1" 2>&1 |
+            Out-String
+        # Scoop outputs something like "v0.5.3 - released at ..." or just "0.5.3"
+        if ($raw -match '\bv?(\d+\.\d+\.\d+)\b') { return $Matches[1] }
+    } catch { }
+    return $null
+}
+
 function Get-LocalAppVersions {
     <#
     .SYNOPSIS
@@ -501,33 +526,57 @@ function Get-LocalAppVersions {
         that this function reports. Incomplete version directories are therefore caught
         by the ToRepair path rather than being silently skipped.
 
-        Falls back to current\manifest.json only when no versioned subdirectory exists
-        (e.g., unusual scoop layouts in test fixtures).
+        Falls back to current\manifest.json when no versioned subdirectory exists.
+        When manifest.json is absent but a versioned dir exists, the dir name is used as
+        the version (scoop itself is installed without a manifest.json in its versioned dir).
+        When only a real current\ dir exists (not a junction) with no manifest.json, the
+        scoop binary is invoked to detect the version; "?" is returned if all else fails.
     .PARAMETER toolsetdir
         Root of the toolset installation (contains scoop\).
     .OUTPUTS
-        Hashtable of app name -> version string.
+        Hashtable of app name -> version string.  May contain "?" for apps whose version
+        could not be determined but whose directory clearly exists.
     #>
     param([string]$toolsetdir)
     $result = @{}
     $appsDir = "$toolsetdir\scoop\apps"
     if (-not (Test-Path $appsDir)) { return $result }
     Get-ChildItem $appsDir -Directory | ForEach-Object {
-        $appDir = $_.FullName
+        $appDir  = $_.FullName
+        $appName = $_.Name
         # Prefer the highest versioned dir over current\ (which may still point to the
         # previous version while the new version dir is already fully extracted).
         $vDir = Get-ChildItem $appDir -Directory |
                     Where-Object { $_.Name -ne 'current' } |
                     Sort-Object Name -Descending |
                     Select-Object -First 1
-        $mPath = if ($vDir) {
-            "$($vDir.FullName)\manifest.json"
+        if ($vDir) {
+            $mPath = "$($vDir.FullName)\manifest.json"
+            if (Test-Path $mPath) {
+                try { $result[$appName] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
+            } else {
+                # manifest.json absent -- scoop itself does not always ship one.
+                # The versioned dir name IS the version string (scoop convention).
+                $result[$appName] = $vDir.Name
+            }
         } else {
-            # No versioned dir -- unusual layout; fall back to current\ (test/legacy).
-            "$appDir\current\manifest.json"
-        }
-        if (Test-Path $mPath) {
-            try { $result[$_.Name] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
+            # No versioned dir -- check current\ (may be a junction or a real dir).
+            $currentDir = "$appDir\current"
+            if (-not (Test-Path $currentDir -ErrorAction SilentlyContinue)) { return }
+            $mPath = "$currentDir\manifest.json"
+            if (Test-Path $mPath) {
+                try { $result[$appName] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
+            } else {
+                # current\ is a real dir with no manifest.json (e.g. manually-renamed
+                # versioned dir, or a pre-existing scoop installation).
+                $isJunction = (Get-Item $currentDir -ErrorAction SilentlyContinue).Attributes `
+                    -band [System.IO.FileAttributes]::ReparsePoint
+                if (-not $isJunction) {
+                    # Try to ask the binary directly (works for scoop).
+                    $ver = Get-ScoopVersionFromBinary "$currentDir\bin\scoop.ps1"
+                    $result[$appName] = if ($ver) { $ver } else { '?' }
+                }
+            }
         }
     }
     return $result
@@ -805,7 +854,9 @@ function Get-AppDiff {
     $names = $Manifest.apps | ForEach-Object { $_.name }
     return [pscustomobject]@{
         ToInstall = @($Manifest.apps | Where-Object { -not $LocalVersions.ContainsKey($_.name) })
-        ToUpdate  = @($Manifest.apps | Where-Object { $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -ne $_.version })
+        ToUpdate  = @($Manifest.apps | Where-Object {
+            $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -ne $_.version
+        })
         ToRepair  = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
             ($ForceReinstall -or -not (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir))
@@ -823,7 +874,14 @@ function Show-AppStatus {
     Write-Host ""
     Write-Host "Status:" -ForegroundColor Cyan
     foreach ($a in $Diff.UpToDate)  { Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green }
-    foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($LocalVersions[$a.name]) -> $($a.version)" -ForegroundColor Yellow }
+    foreach ($a in $Diff.ToUpdate) {
+        $lv = $LocalVersions[$a.name]
+        if ($lv -eq '?') {
+            Write-Host "  [?] $($a.name.PadRight(20)) (unknown version, will re-install -> $($a.version))" -ForegroundColor DarkYellow
+        } else {
+            Write-Host "  [^] $($a.name.PadRight(20)) $lv -> $($a.version)" -ForegroundColor Yellow
+        }
+    }
     foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  integrity fail" -ForegroundColor Magenta }
     foreach ($a in $Diff.ToInstall) { Write-Host "  [+] $($a.name.PadRight(20)) (not installed)" -ForegroundColor Cyan }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
