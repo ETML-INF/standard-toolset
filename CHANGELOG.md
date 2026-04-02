@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.6](https://github.com/ETML-INF/standard-toolset/compare/v2.2.5...v2.2.6) (2026-04-02)
+
+
+### Bug Fixes
+
+* **cmder:** integrity check exclusion in relative path ([15ae39d](https://github.com/ETML-INF/standard-toolset/commit/15ae39da5a858443c939cd7cdea1cb6ae0811be2))
+
 ## [2.2.5](https://github.com/ETML-INF/standard-toolset/compare/v2.2.4...v2.2.5) (2026-04-02)
 
 
