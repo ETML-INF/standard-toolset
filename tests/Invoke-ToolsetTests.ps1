@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 $toolkit = "C:\toolset-repo\toolset.ps1"
 $helper  = "C:\toolset-repo\tests\New-FakePack.ps1"
-$pass = 0; $fail = 0
+$fail = 0
 
 . (Join-Path $PSScriptRoot "Test-Helpers.ps1")
 
@@ -527,8 +527,69 @@ Assert "[31] no FAILED in output"                               ($out31 -notmatc
 Assert "[31] persist data untouched"                            (Test-Path "$persist31\user-settings.json")
 Remove-TestDir $d31, $ps31, $persist31
 
-Write-Host ""
-Write-Host "Results: $pass passed, $fail failed" -ForegroundColor $(if($fail -eq 0){"Green"}else{"Red"})
+Write-Host "[32] Integrity — integrityExcludePaths suppresses extra files in real subdir" -ForegroundColor Cyan
+# Scenario: cmder-style app has a real subdir (vendor\conemu-maximus5) that accumulates
+# user files after install. The manifest lists it in integrityExcludePaths so those extra
+# files are ignored and integrity passes.
+$d32 = "C:\tmp\s32d"; $ps32 = "C:\tmp\s32p"
+New-Item -Force -ItemType Directory $ps32 | Out-Null
+# Build a fake app dir: one base file + the excluded real subdir
+$tmp32 = Join-Path $env:TEMP "fakepck32-$(Get-Random)"
+$app32Dir = "$tmp32\app32\current"
+New-Item -Force -ItemType Directory $app32Dir | Out-Null
+Set-Content "$app32Dir\manifest.json" (@{version="1.0.0"}|ConvertTo-Json) -Encoding UTF8
+# The excluded subdir has user files -- must NOT be counted in the manifest
+$exc32 = "$tmp32\app32\user-cache"; New-Item -Force -ItemType Directory $exc32 | Out-Null
+Set-Content "$exc32\cache.dat" "user-data" -Encoding UTF8
+# Count only the non-excluded files (manifest.json = 1 file)
+$fileCount32 = 1
+$totalSize32  = (Get-Item "$app32Dir\manifest.json").Length
+Compress-Archive -Path "$tmp32\app32" -DestinationPath "$ps32\app32-1.0.0.zip" -Force
+Remove-Item $tmp32 -Recurse -Force -ErrorAction SilentlyContinue
+# Manifest records counts WITHOUT the excluded subdir, plus integrityExcludePaths
+@{
+    version = "99.0.0"; built = (Get-Date -Format "o")
+    apps = @(@{name="app32"; version="1.0.0"; pack="app32-1.0.0.zip"
+               fileCount=$fileCount32; totalSize=$totalSize32
+               integrityExcludePaths=@("user-cache")})
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps32\release-manifest.json" -Encoding UTF8
+# Fresh install
+pwsh -File $toolkit update -Path $d32 `
+    -ManifestSource "$ps32\release-manifest.json" -PackSource $ps32 -NoInteraction
+# Add extra user files into the excluded dir (simulating post-install user activity)
+Set-Content "$d32\scoop\apps\app32\current\user-cache\extra1.dat" "extra" -Encoding UTF8
+Set-Content "$d32\scoop\apps\app32\current\user-cache\extra2.dat" "extra" -Encoding UTF8
+# Remove zip so a repair would fail with a clear error
+Remove-Item "$ps32\app32-1.0.0.zip" -Force
+$out32 = pwsh -File $toolkit update -Path $d32 `
+    -ManifestSource "$ps32\release-manifest.json" -PackSource $ps32 -NoInteraction 2>&1
+$ec32  = $LASTEXITCODE
+Assert "[32] exit 0 (excluded dir ignored)"                 ($ec32 -eq 0)
+Assert "[32] [=] shown (integrity passes)"                  ($out32 -match "\[=\]")
+Assert "[32] no FAILED in output"                           ($out32 -notmatch "FAILED")
+Remove-TestDir $d32, $ps32
+
+Write-Host "[33] Remove-Junction removes a broken junction cleanly" -ForegroundColor Cyan
+# A junction whose target no longer exists (broken junction) must be removable without error.
+$brokenTarget33 = "C:\tmp\s33target"
+$brokenJunction33 = "C:\tmp\s33junction"
+New-Item -Force -ItemType Directory $brokenTarget33 | Out-Null
+New-Item -ItemType Junction -Path $brokenJunction33 -Value $brokenTarget33 | Out-Null
+Remove-Item $brokenTarget33 -Force   # target gone -- junction is now broken
+# Verify junction entry still exists (broken)
+$attr33 = try { [System.IO.File]::GetAttributes($brokenJunction33) } catch { 0 }
+Assert "[33] broken junction entry exists before removal" ([bool]($attr33 -band [System.IO.FileAttributes]::ReparsePoint))
+# Load Remove-Junction from toolset.ps1 and call it
+$removeJunctionDef = Get-Content $toolkit -Raw |
+    Select-String -Pattern '(?ms)function Remove-Junction.*?^}' -AllMatches |
+    ForEach-Object { $_.Matches.Value } | Select-Object -First 1
+Invoke-Expression $removeJunctionDef
+Remove-Junction $brokenJunction33
+Assert "[33] broken junction entry removed" (-not (Test-Path $brokenJunction33) -and `
+    -not ([bool](try { [System.IO.File]::GetAttributes($brokenJunction33) -band [System.IO.FileAttributes]::ReparsePoint } catch { 0 })))
+Remove-TestDir $brokenTarget33   # already gone, no-op
+
+
 if ($fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red

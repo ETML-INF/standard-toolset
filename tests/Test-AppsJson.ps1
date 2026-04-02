@@ -40,7 +40,7 @@ if (-not ($raw | Test-Json)) {
 $apps = $raw | ConvertFrom-Json
 
 # ── Schema check ─────────────────────────────────────────────────────────────
-$allowed = @('name', 'bucket', 'version', 'tags', 'paths2DropToEnableMultiUser', '//comment')
+$allowed = @('name', 'bucket', 'version', 'tags', 'paths2DropToEnableMultiUser', 'integrityExcludePaths', '//comment')
 $errors  = [System.Collections.Generic.List[string]]::new()
 
 foreach ($app in $apps) {

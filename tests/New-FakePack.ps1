@@ -24,14 +24,24 @@ $null = New-Item -ItemType Directory -Force -Path $OutputDir
 # Fake packs have no junctions so the result is identical to a naive count, but using
 # the same method ensures test counts stay consistent with production behaviour.
 function Get-FakePackFileCount {
-    param([string]$Path)
+    param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '')
+    if ($RootPath -eq '') { $RootPath = $Path }
     $count = 0; $size = [long]0
     Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-            # Stop at junctions — never follow into persist targets.
+            # Stop at junctions -- never follow into persist targets.
         } elseif ($_.PSIsContainer) {
-            $sub = Get-FakePackFileCount $_.FullName
-            $count += $sub.Count; $size += $sub.TotalSize
+            $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
+            $excluded = $false
+            foreach ($ex in $ExcludePaths) {
+                if ($rel -like "$ex" -or $rel -like "$ex\*" -or $rel -like "$ex/*") {
+                    $excluded = $true; break
+                }
+            }
+            if (-not $excluded) {
+                $sub = Get-FakePackFileCount $_.FullName $ExcludePaths $RootPath
+                $count += $sub.Count; $size += $sub.TotalSize
+            }
         } else {
             $count++; $size += $_.Length
         }
@@ -53,9 +63,12 @@ foreach ($app in $Apps) {
     $null = New-Item -ItemType Directory -Force -Path $curDir
     @{ version = $version } | ConvertTo-Json | Set-Content (Join-Path $curDir "manifest.json") -Encoding UTF8
 
-    # Count source files before compression (without following junctions) so the recorded
-    # fileCount/totalSize match what Test-AppIntegrity measures on the installed app dir.
-    $m = Get-FakePackFileCount (Join-Path $tmpDir $name)
+    # ExcludePaths mirrors integrityExcludePaths in the manifest so counts are consistent.
+    $excludePaths = if ($app.ContainsKey('IntegrityExcludePaths')) { @($app.IntegrityExcludePaths) } else { @() }
+
+    # Count source files before compression (without following junctions or excluded paths)
+    # so the recorded fileCount/totalSize match what Test-AppIntegrity measures.
+    $m = Get-FakePackFileCount (Join-Path $tmpDir $name) $excludePaths
     $fileCount = $m.Count
     $totalSize = $m.TotalSize
 
@@ -67,7 +80,9 @@ foreach ($app in $Apps) {
         ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
     try { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
-    $manifestApps += [ordered]@{ name = $name; version = $version; pack = $packName; fileCount = $fileCount; totalSize = $totalSize }
+    $entry = [ordered]@{ name = $name; version = $version; pack = $packName; fileCount = $fileCount; totalSize = $totalSize }
+    if ($excludePaths.Count -gt 0) { $entry['integrityExcludePaths'] = $excludePaths }
+    $manifestApps += $entry
 }
 
 @{

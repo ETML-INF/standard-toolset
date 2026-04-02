@@ -30,7 +30,8 @@
   {
     "//comment":"shared bin/config/ConEmu.xml via scoop persist is intentional — all users get the same aliases and profile scripts",
     "name":"cmder-full",
-    "tags":"devops,cmd"
+    "tags":"devops,cmd",
+    "integrityExcludePaths":["vendor\\conemu-maximus5"]
   },
   {
     "name":"bruno",

@@ -128,23 +128,35 @@ try {
 
     # ── Measure-SourceNoJunction: junction-aware file counter ─────────────
     # Recursively walks $Path, stopping at reparse points (scoop persist
-    # junctions: data\, bin\, settings\, …) instead of following them.
+    # junctions: data\, bin\, settings\, ...) instead of following them.
     # Also skips the current\ subtree, which is excluded from packs.
+    # Accepts optional ExcludePaths (relative path prefixes) for apps that
+    # store user-modifiable data in real subdirs (e.g. cmder vendor\conemu-maximus5).
     # Returns a hashtable with Count (file count) and TotalSize (bytes).
     # Used to record fileCount/totalSize in the release manifest so they match
     # what Test-AppIntegrity measures on the client after scoop activation.
     function Measure-SourceNoJunction {
-        param([string]$Path)
+        param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '')
+        if ($RootPath -eq '') { $RootPath = $Path }
         $count = 0
         $size  = [long]0
         Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
             if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-                # Stop at junctions — do not traverse into scoop persist targets.
+                # Stop at junctions -- do not traverse into scoop persist targets.
             } elseif ($_.PSIsContainer) {
                 if ($_.Name -ne 'current') {
-                    $sub = Measure-SourceNoJunction $_.FullName
-                    $count += $sub.Count
-                    $size  += $sub.TotalSize
+                    $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
+                    $excluded = $false
+                    foreach ($ex in $ExcludePaths) {
+                        if ($rel -like "$ex" -or $rel -like "$ex\*" -or $rel -like "$ex/*") {
+                            $excluded = $true; break
+                        }
+                    }
+                    if (-not $excluded) {
+                        $sub = Measure-SourceNoJunction $_.FullName $ExcludePaths $RootPath
+                        $count += $sub.Count
+                        $size  += $sub.TotalSize
+                    }
                 }
             } else {
                 $count++
@@ -421,14 +433,17 @@ try {
             $packPath = "$packsDir\$packName"
 
             Write-Output "  Packing $appName $version..."
-            # Zip root = <appName>\ — extraction to scoop\apps\ gives the correct layout.
+            # Zip root = <appName>\ -- extraction to scoop\apps\ gives the correct layout.
             # 'current' is a scoop junction recreated by 'scoop reset *' after extraction;
             # it is excluded by the [/\\]current[/\\] filter in New-ZipPack.
             New-ZipPack -AppDir "build\scoop\apps\$appName" -DestZip $packPath
             # Integrity metadata is computed from the source dir without following junctions
-            # (scoop persist: data\, bin\, settings\, …) so user modifications to persisted
+            # (scoop persist: data\, bin\, settings\, ...) so user modifications to persisted
             # data do not trigger false integrity failures on the client.
-            $m  = Measure-SourceNoJunction "build\scoop\apps\$appName"
+            # integrityExcludePaths (e.g. cmder vendor\conemu-maximus5) are also excluded so
+            # user data in real subdirs does not inflate the count.
+            $excludePaths = if ($app.PSObject.Properties['integrityExcludePaths']) { @($app.integrityExcludePaths) } else { @() }
+            $m  = Measure-SourceNoJunction "build\scoop\apps\$appName" $excludePaths
             $fc = $m.Count; $ts = $m.TotalSize
             $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts }
         }
@@ -464,6 +479,7 @@ try {
         if ($packResults.ContainsKey($app.name)) {
             $entry = $packResults[$app.name]
             if ($app.PSObject.Properties['paths2DropToEnableMultiUser']) { $entry['paths2DropToEnableMultiUser'] = $app.paths2DropToEnableMultiUser }
+            if ($app.PSObject.Properties['integrityExcludePaths'])       { $entry['integrityExcludePaths']       = $app.integrityExcludePaths }
             $manifestApps += $entry
         }
     }

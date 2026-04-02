@@ -145,7 +145,8 @@ function Invoke-Activate {
         if ($scoopVerDir) {
             Write-Host "Bootstrapping scoop current\ junction ($($scoopVerDir.Name))..." -ForegroundColor Green
             $junctionPath = "$scoopdir\apps\scoop\current"
-            if (Test-Path $junctionPath) { Remove-Item -LiteralPath $junctionPath -Force }
+            if (Test-IsReparsePoint $junctionPath) { Remove-Junction $junctionPath }
+            elseif (Test-Path $junctionPath)       { Remove-Item -LiteralPath $junctionPath -Force }
             New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
         }
     }
@@ -165,10 +166,13 @@ function Invoke-Activate {
             $verDir     = "$appDir\$($appEntry.version)"
             if (-not (Test-Path $verDir -ErrorAction SilentlyContinue)) { continue }
             $jPath      = "$appDir\current"
-            $jItem      = Get-Item $jPath -ErrorAction SilentlyContinue
-            $isJunction = $jItem -and ($jItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
-            if ($jItem -and -not $isJunction) { continue }   # real dir, do not touch
-            if ($isJunction) { Remove-Item -LiteralPath $jPath -Force }
+            # Use Test-IsReparsePoint (raw attribute read) so broken junctions (target
+            # deleted/renamed) are detected correctly -- Get-Item returns $null for broken
+            # junctions in PS5.1 making the Attributes check unreliable.
+            $isJunction = Test-IsReparsePoint $jPath
+            $exists     = $isJunction -or (Test-Path $jPath -ErrorAction SilentlyContinue)
+            if ($exists -and -not $isJunction) { continue }   # real dir, do not touch
+            if ($isJunction) { Remove-Junction $jPath }
             New-Item -ItemType Junction -Path $jPath -Value $verDir | Out-Null
         }
     }
@@ -197,9 +201,9 @@ function Invoke-Activate {
                 if (-not $item) { continue }
                 try {
                     if ($item.PSIsContainer) {
-                        # Junction link -- Remove-Item without -Recurse removes only the
-                        # reparse point, never the persist target, even when non-empty.
-                        Remove-Item -LiteralPath $item.FullName -Force
+                        # Junction link -- Remove-Junction removes only the reparse point
+                        # entry, never the persist target, even if broken or non-empty.
+                        Remove-Junction $item.FullName
                     } else {
                         Remove-Item $item.FullName -Force
                     }
@@ -633,7 +637,7 @@ function Get-Pack {
         $localDir = Join-Path $PackSource $packDir
         if (Test-Path $localDir -PathType Container) {
             $check = Test-PreExtractedDir $localDir $App -ZipPath $local
-            if ($check -eq "ok")              { return $localDir }
+            if ($check -eq "ok")              { Write-Host " [pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $localDir }
             if ($check -like "count_mismatch:*") {
                 $parts = $check.Split(':')
                 $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
@@ -642,14 +646,14 @@ function Get-Pack {
                     Write-Warning "$msg $zipNote"
                 } else {
                     $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
-                    if ($ans -notmatch '^[Yy]$') { return $localDir }
+                    if ($ans -notmatch '^[Yy]$') { Write-Host " [pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $localDir }
                 }
-                if (Test-Path $local) { return $local }
+                if (Test-Path $local) { Write-Host " [PackSource]" -ForegroundColor DarkGray -NoNewline; return $local }
             } else {
                 Write-Warning "Pre-extracted $packDir version mismatch  - falling back to zip"
             }
         }
-        if (Test-Path $local) { return $local }
+        if (Test-Path $local) { Write-Host " [PackSource]" -ForegroundColor DarkGray -NoNewline; return $local }
         throw "Pack not found in PackSource: $local"
     }
 
@@ -658,7 +662,7 @@ function Get-Pack {
     $lDirPath = "$lBase\$packDir"
     if (Test-Path $lDirPath -PathType Container) {
         $check = Test-PreExtractedDir $lDirPath $App -ZipPath $lPath
-        if ($check -eq "ok")              { return $lDirPath }
+        if ($check -eq "ok")              { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $lDirPath }
         if ($check -like "count_mismatch:*") {
             $parts = $check.Split(':')
             $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
@@ -667,14 +671,14 @@ function Get-Pack {
                 Write-Warning "$msg $zipNote"
             } else {
                 $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
-                if ($ans -notmatch '^[Yy]$') { return $lDirPath }
+                if ($ans -notmatch '^[Yy]$') { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $lDirPath }
             }
-            if (Test-Path $lPath) { return $lPath }
+            if (Test-Path $lPath) { Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline; return $lPath }
         } else {
             Write-Warning "Pre-extracted $packDir version mismatch  - falling back to zip"
         }
     }
-    if (Test-Path $lPath) { return $lPath }
+    if (Test-Path $lPath) { Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline; return $lPath }
 
     $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
     # packUrl is written by build.ps1 for packs reused from a prior release  - it points to the
@@ -693,9 +697,11 @@ function Get-Pack {
         if (-not (Test-Path $url)) {
             throw "Local pack not accessible: $url"
         }
+        Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
         Copy-Item $url $tmpFile -Force
         return $tmpFile
     }
+    Write-Host " [GitHub]" -ForegroundColor DarkGray -NoNewline
     try {
         Invoke-Download -Url $url -OutFile $tmpFile -Description $packName
         return $tmpFile
@@ -714,19 +720,37 @@ function Get-FilesNoJunction {
         settings\, etc.) are not followed, so files added by users to the persist folder
         (app settings, installed extensions, etc.) do not inflate the file count and
         break integrity checks.
+        Optionally skips named subdirectories (ExcludePaths) for apps that store user
+        data in real (non-junction) subdirectories that should not be counted.
         Used by Test-AppIntegrity for consistent measurement both before and after
         scoop activation.
     .PARAMETER Path
         Root directory to enumerate.
+    .PARAMETER ExcludePaths
+        Optional list of relative path prefixes (e.g. "vendor\conemu-maximus5") whose
+        subtrees are skipped entirely.  Comparison is case-insensitive.
+    .PARAMETER RootPath
+        Internal -- root of the enumeration used to compute relative paths.
+        Callers should omit this; it is set on the first call automatically.
     .OUTPUTS
-        System.IO.FileInfo objects for every file that is not inside a reparse point.
+        System.IO.FileInfo objects for every file that is not inside a reparse point
+        or an excluded subtree.
     #>
-    param([string]$Path)
+    param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '')
+    if ($RootPath -eq '') { $RootPath = $Path }
     Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
             # Stop here -- do not traverse into junctions or symlinks.
         } elseif ($_.PSIsContainer) {
-            Get-FilesNoJunction $_.FullName
+            # Check exclusion list (relative path from root, case-insensitive).
+            $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
+            $excluded = $false
+            foreach ($ex in $ExcludePaths) {
+                if ($rel -like "$ex" -or $rel -like "$ex\*" -or $rel -like "$ex/*") {
+                    $excluded = $true; break
+                }
+            }
+            if (-not $excluded) { Get-FilesNoJunction $_.FullName $ExcludePaths $RootPath }
         } else {
             $_
         }
@@ -743,6 +767,9 @@ function Test-AppIntegrity {
         (reparse) points -- scoop persist directories such as data\, bin\, settings\ --
         are excluded from the count so that user modifications to persisted data do not
         cause false integrity failures.
+        Paths listed in the app's integrityExcludePaths manifest field are also excluded,
+        for apps that store user-modifiable data in real (non-junction) subdirectories
+        (e.g. cmder's vendor\conemu-maximus5\).
         Old manifests that lack fileCount/totalSize are treated as healthy (graceful
         degradation for legacy releases).
     .PARAMETER App
@@ -761,12 +788,56 @@ function Test-AppIntegrity {
         $versionDir = "$toolsetdir\scoop\apps\$($App.name)\current"
     }
     if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) { return $false }
-    # Use Get-FilesNoJunction so that user modifications to scoop persist directories
-    # (data\, settings\, bin\ junctions) don't inflate the count.
-    $files = @(Get-FilesNoJunction $versionDir)
+    $excludePaths = if ($App.PSObject.Properties['integrityExcludePaths']) {
+        @($App.integrityExcludePaths)
+    } else { @() }
+    Write-Host "  Checking integrity $($App.name)..." -ForegroundColor DarkGray -NoNewline
+    $files = @(Get-FilesNoJunction $versionDir $excludePaths)
+    Write-Host " $($files.Count) files" -ForegroundColor DarkGray
     if ($files.Count -ne [int]$App.fileCount) { return $false }
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     return $size -eq [long]$App.totalSize
+}
+
+function Remove-Junction {
+    <#
+    .SYNOPSIS
+        Removes a single junction (directory reparse point) without following its target.
+    .DESCRIPTION
+        Uses cmd.exe's rmdir to remove the directory entry unconditionally.
+        Unlike Remove-Item, this works for both valid junctions and broken ones
+        (where the target directory no longer exists).  PS5.1's Remove-Item
+        tries to stat the target before removing the reparse point entry; when
+        the target is gone it throws instead of just deleting the link.
+        cmd rmdir without /s never recurses into the target.
+    .PARAMETER Path
+        Full path to the junction directory entry to remove.
+    .OUTPUTS
+        None
+    #>
+    param([string]$Path)
+    cmd /c rmdir "$Path" 2>$null
+}
+
+function Test-IsReparsePoint {
+    <#
+    .SYNOPSIS
+        Returns $true when the path is a reparse point (junction/symlink), including broken ones.
+    .DESCRIPTION
+        Uses [System.IO.File]::GetAttributes() which reads raw filesystem attributes without
+        following the reparse point.  Get-Item / Test-Path in PS5.1 follow the junction
+        and return $null / $false when the junction target no longer exists (broken junction),
+        making them unreliable for detection.
+    .PARAMETER Path
+        Full path to test.
+    .OUTPUTS
+        Boolean
+    #>
+    param([string]$Path)
+    try {
+        $attr = [System.IO.File]::GetAttributes($Path)
+        return [bool]($attr -band [System.IO.FileAttributes]::ReparsePoint)
+    } catch { return $false }
 }
 
 function Remove-ReparsePoints {
@@ -775,7 +846,7 @@ function Remove-ReparsePoints {
         Removes all reparse points (junction links) under a directory without following them.
     .DESCRIPTION
         Recursively enumerates a directory tree, stopping at reparse points instead of
-        traversing into them, then removes each link with Remove-Item (no -Recurse) so the
+        traversing into them, then removes each link via Remove-Junction (cmd rmdir) so the
         junction target (e.g. scoop\persist) is never touched.
         This is required before Remove-Item -Recurse on a versioned app dir because
         PS5.1 / .NET 4.x follow junctions during recursive enumeration and raise
@@ -788,8 +859,7 @@ function Remove-ReparsePoints {
     param([string]$Path)
     Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-            # Remove-Item without -Recurse removes only the junction link, not the target.
-            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            Remove-Junction $_.FullName
         } elseif ($_.PSIsContainer) {
             Remove-ReparsePoints $_.FullName
         }
@@ -853,17 +923,25 @@ function Get-AppDiff {
     param($Manifest, $LocalVersions, [string]$toolsetdir, [bool]$ForceReinstall = $false)
     $names = $Manifest.apps | ForEach-Object { $_.name }
     return [pscustomobject]@{
-        ToInstall = @($Manifest.apps | Where-Object { -not $LocalVersions.ContainsKey($_.name) })
+        # "?" means version unknown but directory exists: use integrity as the tiebreaker.
+        # If files match the target version -> treat as UpToDate. Otherwise fresh install.
+        ToInstall = @($Manifest.apps | Where-Object {
+            (-not $LocalVersions.ContainsKey($_.name)) -or
+            ($LocalVersions[$_.name] -eq '?' -and -not (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir))
+        })
         ToUpdate  = @($Manifest.apps | Where-Object {
-            $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -ne $_.version
+            $LocalVersions.ContainsKey($_.name) -and
+            $LocalVersions[$_.name] -ne $_.version -and
+            $LocalVersions[$_.name] -ne '?'
         })
         ToRepair  = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
             ($ForceReinstall -or -not (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir))
         })
         UpToDate  = @($Manifest.apps | Where-Object {
-            $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
-            -not $ForceReinstall -and (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir)
+            $LocalVersions.ContainsKey($_.name) -and -not $ForceReinstall -and
+            (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir) -and
+            ($LocalVersions[$_.name] -eq $_.version -or $LocalVersions[$_.name] -eq '?')
         })
         Removed   = @($LocalVersions.Keys | Where-Object { $_ -notin $names })
     }
@@ -873,17 +951,22 @@ function Show-AppStatus {
     param($Diff, $LocalVersions)
     Write-Host ""
     Write-Host "Status:" -ForegroundColor Cyan
-    foreach ($a in $Diff.UpToDate)  { Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green }
-    foreach ($a in $Diff.ToUpdate) {
-        $lv = $LocalVersions[$a.name]
-        if ($lv -eq '?') {
-            Write-Host "  [?] $($a.name.PadRight(20)) (unknown version, will re-install -> $($a.version))" -ForegroundColor DarkYellow
+    foreach ($a in $Diff.UpToDate) {
+        if ($LocalVersions[$a.name] -eq '?') {
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)" -ForegroundColor Green
         } else {
-            Write-Host "  [^] $($a.name.PadRight(20)) $lv -> $($a.version)" -ForegroundColor Yellow
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green
         }
     }
+    foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($LocalVersions[$a.name]) -> $($a.version)" -ForegroundColor Yellow }
     foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  integrity fail" -ForegroundColor Magenta }
-    foreach ($a in $Diff.ToInstall) { Write-Host "  [+] $($a.name.PadRight(20)) (not installed)" -ForegroundColor Cyan }
+    foreach ($a in $Diff.ToInstall) {
+        if ($LocalVersions[$a.name] -eq '?') {
+            Write-Host "  [+] $($a.name.PadRight(20)) (version unknown, files missing -- will re-install)" -ForegroundColor Cyan
+        } else {
+            Write-Host "  [+] $($a.name.PadRight(20)) (not installed)" -ForegroundColor Cyan
+        }
+    }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
     Write-Host ""
 }
@@ -982,9 +1065,10 @@ if ($Command -eq "update") {
 
         $failed = @()
         foreach ($app in $toDo) {
-            Write-Host "  Downloading $($app.pack)..." -ForegroundColor Yellow -NoNewline
+            Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
             try {
                 $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -NoInteraction $NoInteraction
+                Write-Host "" -ForegroundColor Yellow   # end the source-tag line
                 Install-Pack -PackPath $packPath -toolsetdir $toolsetdir
                 if ($packPath.StartsWith($env:TEMP)) { Remove-Item $packPath -Force -ErrorAction SilentlyContinue }
                 Remove-StaleVersionDirs -toolsetdir $toolsetdir -AppName $app.name -KeepVersion $app.version
