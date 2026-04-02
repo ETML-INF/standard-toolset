@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.4](https://github.com/ETML-INF/standard-toolset/compare/v2.2.3...v2.2.4) (2026-04-02)
+
+
+### Bug Fixes
+
+* **activate:** correctly remove junctions ([9c46cf8](https://github.com/ETML-INF/standard-toolset/commit/9c46cf8f078ba9d0c2a05cc7af0851e889d0eb4e))
+* **unkown:** handle unknown version (i.e. scoop) ([9c46cf8](https://github.com/ETML-INF/standard-toolset/commit/9c46cf8f078ba9d0c2a05cc7af0851e889d0eb4e))
+
 ## [2.2.3](https://github.com/ETML-INF/standard-toolset/compare/v2.2.2...v2.2.3) (2026-04-01)
 
 
