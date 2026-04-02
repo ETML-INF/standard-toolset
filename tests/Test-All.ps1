@@ -52,6 +52,11 @@ function Invoke-Step {
 # ── Step 1: static checks ────────────────────────────────────────────────
 if (-not $SkipStaticChecks) {
     Invoke-Step "Static checks" @("-File", (Join-Path $testsDir "Test-StaticChecks.ps1"), "-RepoRoot", $repoRoot)
+    if ($totalFail -gt 0) {
+        Write-Host ""
+        Write-Host "Static checks failed -- fix issues before running container tests." -ForegroundColor Red
+        exit 1
+    }
 }
 
 # ── Step 2+: auto-discover Run-*.ps1 ────────────────────────────────────

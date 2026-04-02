@@ -145,9 +145,17 @@ function Invoke-Activate {
         if ($scoopVerDir) {
             Write-Host "Bootstrapping scoop current\ junction ($($scoopVerDir.Name))..." -ForegroundColor Green
             $junctionPath = "$scoopdir\apps\scoop\current"
-            if (Test-IsReparsePoint $junctionPath) { Remove-Junction $junctionPath }
-            elseif (Test-Path $junctionPath)       { Remove-Item -LiteralPath $junctionPath -Force }
-            New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
+            if (Test-IsReparsePoint $junctionPath) {
+                Remove-Junction $junctionPath
+                if (Test-IsReparsePoint $junctionPath) {
+                    Write-Warning "Could not remove scoop bootstrap junction '$junctionPath' - activation may be incomplete"
+                }
+            } elseif (Test-Path $junctionPath) {
+                Remove-Item -LiteralPath $junctionPath -Force
+            }
+            if (-not (Test-IsReparsePoint $junctionPath) -and -not (Test-Path $junctionPath)) {
+                New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
+            }
         }
     }
     # Pre-update current\ junctions from the release manifest before scoop reset *.
@@ -172,8 +180,18 @@ function Invoke-Activate {
             $isJunction = Test-IsReparsePoint $jPath
             $exists     = $isJunction -or (Test-Path $jPath -ErrorAction SilentlyContinue)
             if ($exists -and -not $isJunction) { continue }   # real dir, do not touch
-            if ($isJunction) { Remove-Junction $jPath }
-            New-Item -ItemType Junction -Path $jPath -Value $verDir | Out-Null
+            if ($isJunction) {
+                Remove-Junction $jPath
+                if (Test-IsReparsePoint $jPath) {
+                    Write-Warning "Could not remove junction '$jPath' (still present after rmdir) - skipping '$($appEntry.name)'"
+                    continue
+                }
+            }
+            try {
+                New-Item -ItemType Junction -Path $jPath -Value $verDir -ErrorAction Stop | Out-Null
+            } catch {
+                Write-Warning "Could not create junction '$jPath' -> '$verDir': $_"
+            }
         }
     }
     if (Test-Path $scoopPs1 -ErrorAction SilentlyContinue) {

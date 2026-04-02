@@ -437,13 +437,16 @@ try {
             # 'current' is a scoop junction recreated by 'scoop reset *' after extraction;
             # it is excluded by the [/\\]current[/\\] filter in New-ZipPack.
             New-ZipPack -AppDir "build\scoop\apps\$appName" -DestZip $packPath
-            # Integrity metadata is computed from the source dir without following junctions
-            # (scoop persist: data\, bin\, settings\, ...) so user modifications to persisted
-            # data do not trigger false integrity failures on the client.
-            # integrityExcludePaths (e.g. cmder vendor\conemu-maximus5) are also excluded so
-            # user data in real subdirs does not inflate the count.
+            # Integrity metadata is computed from the versioned subdir (matching the path
+            # Test-AppIntegrity uses on the client) so that integrityExcludePaths relative
+            # paths are consistent -- no version-prefix mismatch from counting at the app dir level.
             $excludePaths = if ($app.PSObject.Properties['integrityExcludePaths']) { @($app.integrityExcludePaths) } else { @() }
-            $m  = Measure-SourceNoJunction "build\scoop\apps\$appName" $excludePaths
+            $appBuildDir  = "build\scoop\apps\$appName"
+            $verObj       = Get-ChildItem $appBuildDir -Directory -ErrorAction SilentlyContinue |
+                                Where-Object { $_.Name -ne 'current' } |
+                                Sort-Object Name -Descending | Select-Object -First 1
+            $measureRoot  = if ($verObj) { $verObj.FullName } else { (Resolve-Path $appBuildDir -ErrorAction SilentlyContinue).ProviderPath }
+            $m  = Measure-SourceNoJunction $measureRoot $excludePaths
             $fc = $m.Count; $ts = $m.TotalSize
             $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts }
         }

@@ -590,7 +590,48 @@ Assert "[33] broken junction entry removed" (-not (Test-Path $brokenJunction33) 
 Remove-TestDir $brokenTarget33   # already gone, no-op
 
 
-if ($fail -gt 0) {
+Write-Host "[34] Integrity -- exclusion works with versioned dir layout (scoop real structure)" -ForegroundColor Cyan
+# Scenario: app is installed as scoop\apps\app34\1.0.0\ (versioned dir) with current\ as a
+# junction.  Test-AppIntegrity measures from 1.0.0\ as root.  Excluded path "user-cache" must
+# match relative to that root -- this exercises the regression fixed in build.ps1 where
+# Measure-SourceNoJunction was called with a relative path causing wrong relative path offsets.
+$d34     = "C:\tmp\s34d"
+$ps34    = "C:\tmp\s34p"
+$ver34   = "$d34\scoop\apps\app34\1.0.0"
+$exc34   = "$ver34\user-cache"
+New-Item -Force -ItemType Directory $ver34 | Out-Null
+New-Item -Force -ItemType Directory $exc34 | Out-Null
+Set-Content "$ver34\manifest.json" (@{version="1.0.0"} | ConvertTo-Json) -Encoding UTF8
+Set-Content "$ver34\base.txt"      "base-content"                         -Encoding UTF8
+# current\ -> versioned dir (exactly like real scoop after 'scoop reset')
+New-Item -ItemType Junction -Path "$d34\scoop\apps\app34\current" -Value $ver34 | Out-Null
+# manifest: count only manifest.json + base.txt (2 files); user-cache\ excluded
+$fc34 = 2
+$ts34 = (Get-Item "$ver34\manifest.json").Length + (Get-Item "$ver34\base.txt").Length
+New-Item -Force -ItemType Directory $ps34 | Out-Null
+@{
+    version = "99.0.0"; built = (Get-Date -Format "o")
+    apps = @(@{ name="app34"; version="1.0.0"; fileCount=$fc34; totalSize=$ts34
+                integrityExcludePaths=@("user-cache") })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps34\release-manifest.json" -Encoding UTF8
+# --- pass A: excluded dir is empty (fresh install state) -- should be [=] ---
+$outA34 = pwsh -File $toolkit status -Path $d34 -ManifestSource "$ps34\release-manifest.json" -NoInteraction 2>&1
+Assert "[34] [=] with empty excluded dir (versioned layout)"   ($outA34 -match "\[=\]")
+Assert "[34] no [!] on fresh install (versioned layout)"       ($outA34 -notmatch "\[!\]")
+# --- pass B: user adds files to the excluded dir -- must still be [=] ---
+Set-Content "$exc34\colour-scheme.xml" "<scheme/>" -Encoding UTF8
+Set-Content "$exc34\backup.xml"        "<bak/>"    -Encoding UTF8
+$outB34 = pwsh -File $toolkit status -Path $d34 -ManifestSource "$ps34\release-manifest.json" -NoInteraction 2>&1
+Assert "[34] [=] after user files added to excluded dir"       ($outB34 -match "\[=\]")
+Assert "[34] no [!] after user files in excluded dir"          ($outB34 -notmatch "\[!\]")
+# --- pass C: file added OUTSIDE the excluded dir -- must flag [!] integrity fail ---
+Set-Content "$ver34\extra-injected.dll" "injected" -Encoding UTF8
+$outC34 = pwsh -File $toolkit status -Path $d34 -ManifestSource "$ps34\release-manifest.json" -NoInteraction 2>&1
+Assert "[34] [!] when non-excluded file is added"              ($outC34 -match "\[!\]")
+Remove-TestDir $d34, $ps34
+
+
+if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red
     foreach ($f in $failedAssertions) { Write-Host "  - $f" -ForegroundColor Red }
