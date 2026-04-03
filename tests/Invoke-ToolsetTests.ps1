@@ -538,14 +538,14 @@ $tmp32 = Join-Path $env:TEMP "fakepck32-$(Get-Random)"
 $app32Dir = "$tmp32\app32\current"
 New-Item -Force -ItemType Directory $app32Dir | Out-Null
 Set-Content "$app32Dir\manifest.json" (@{version="1.0.0"}|ConvertTo-Json) -Encoding UTF8
-# The excluded subdir has user files -- must NOT be counted in the manifest
-$exc32 = "$tmp32\app32\user-cache"; New-Item -Force -ItemType Directory $exc32 | Out-Null
+# The excluded subdir (inside current\) has user files -- must NOT be counted in the manifest
+$exc32 = "$app32Dir\user-cache"; New-Item -Force -ItemType Directory $exc32 | Out-Null
 Set-Content "$exc32\cache.dat" "user-data" -Encoding UTF8
 # Count only the non-excluded files (manifest.json = 1 file)
 $fileCount32 = 1
 $totalSize32  = (Get-Item "$app32Dir\manifest.json").Length
 Compress-Archive -Path "$tmp32\app32" -DestinationPath "$ps32\app32-1.0.0.zip" -Force
-Remove-Item $tmp32 -Recurse -Force -ErrorAction SilentlyContinue
+Remove-TestDir $tmp32
 # Manifest records counts WITHOUT the excluded subdir, plus integrityExcludePaths
 @{
     version = "99.0.0"; built = (Get-Date -Format "o")
@@ -585,8 +585,8 @@ $removeJunctionDef = Get-Content $toolkit -Raw |
     ForEach-Object { $_.Matches.Value } | Select-Object -First 1
 Invoke-Expression $removeJunctionDef
 Remove-Junction $brokenJunction33
-Assert "[33] broken junction entry removed" (-not (Test-Path $brokenJunction33) -and `
-    -not ([bool](try { [System.IO.File]::GetAttributes($brokenJunction33) -band [System.IO.FileAttributes]::ReparsePoint } catch { 0 })))
+$afterAttr33 = try { [System.IO.File]::GetAttributes($brokenJunction33) -band [System.IO.FileAttributes]::ReparsePoint } catch { 0 }
+Assert "[33] broken junction entry removed" (-not (Test-Path $brokenJunction33) -and -not ([bool]$afterAttr33))
 Remove-TestDir $brokenTarget33   # already gone, no-op
 
 
@@ -630,6 +630,283 @@ $outC34 = pwsh -File $toolkit status -Path $d34 -ManifestSource "$ps34\release-m
 Assert "[34] [!] when non-excluded file is added"              ($outC34 -match "\[!\]")
 Remove-TestDir $d34, $ps34
 
+
+Write-Host "[35] Private apps merged from LDrivePath private-apps.json" -ForegroundColor Cyan
+# Scenario: CI manifest has no private apps.  Client machine has private-apps.json on L:\.
+# Merge-PrivateApps must append the private app to the manifest so toolset.ps1 installs it.
+$d35      = "C:\tmp\s35d"
+$ps35     = "C:\tmp\s35p"
+$ldrive35 = "C:\tmp\s35-ldrive"
+
+# Build regular-app pack in PackSource (uses fake pack helper for consistent manifest counts)
+& $helper -OutputDir $ps35 -Apps @(@{Name="regularapp";Version="1.0.0"}) -ManifestVersion "99.0.0"
+
+# Build secretapp pack manually and place it in the fake LDrive
+$null = New-Item -ItemType Directory -Force -Path $ldrive35
+$tmpSecret35 = "$env:TEMP\fakepck-secretapp-$(Get-Random)"
+$null = New-Item -ItemType Directory -Force -Path "$tmpSecret35\secretapp\current"
+'{"version":"2.0.0"}' | Set-Content "$tmpSecret35\secretapp\current\manifest.json" -Encoding UTF8
+Compress-Archive -Path "$tmpSecret35\secretapp" -DestinationPath "$ldrive35\secretapp-2.0.0.zip" -Force
+Remove-TestDir $tmpSecret35
+
+# Write private-apps.json in the fake LDrive
+@(@{ name = "secretapp"; version = "2.0.0"; localPack = "$ldrive35\secretapp-2.0.0.zip" }) |
+    ConvertTo-Json | Set-Content "$ldrive35\private-apps.json" -Encoding UTF8
+
+# Run update: PackSource contains regularapp; secretapp comes from LDrive via Merge-PrivateApps
+$out35 = pwsh -File $toolkit update -Path $d35 -ManifestSource "$ps35\release-manifest.json" `
+    -PackSource $ps35 -LDrivePath $ldrive35 -NoInteraction 2>&1
+$ec35  = $LASTEXITCODE
+
+Assert "[35] exit 0"                           ($ec35 -eq 0)
+Assert "[35] no FAILED in output"              ($out35 -notmatch "FAILED")
+Assert "[35] regularapp installed"             (Test-Path "$d35\scoop\apps\regularapp\current\manifest.json")
+Assert "[35] secretapp installed from LDrive"  (Test-Path "$d35\scoop\apps\secretapp\current\manifest.json")
+Assert "[35] private apps merged message shown" ($out35 -match "private app")
+Remove-TestDir $d35, $ps35, $ldrive35
+
+
+Write-Host "[36a] Activation -- scoop current\ real folder WITH scoop.ps1 (silent wrong-version regression)" -ForegroundColor Cyan
+# Prior manual install: current\ is a real folder containing bin\scoop.ps1 (v0.4.0).
+# A new pack was extracted alongside it as a versioned dir (0.5.0\).
+# Without the fix: bootstrap is skipped (bin\scoop.ps1 found), old scoop runs, 0.5.0\ is ignored.
+$d36a = "C:\tmp\s36ad"; $sd36a = "$d36a\scoop"
+New-Item -Force -ItemType Directory "$sd36a\apps\scoop\current\bin" | Out-Null
+Set-Content "$sd36a\apps\scoop\current\bin\scoop.ps1" "# old scoop stub" -Encoding UTF8
+Set-Content "$sd36a\apps\scoop\current\manifest.json" '{"version":"0.4.0"}' -Encoding UTF8
+New-Item -Force -ItemType Directory "$sd36a\apps\scoop\0.5.0\bin" | Out-Null
+Set-Content "$sd36a\apps\scoop\0.5.0\bin\scoop.ps1" "# new scoop stub" -Encoding UTF8
+Set-Content "$sd36a\apps\scoop\0.5.0\manifest.json" '{"version":"0.5.0"}' -Encoding UTF8
+New-TestShims -ScoopDir $sd36a -OldBase "$sd36a\"
+$null = pwsh -File $toolkit -Path $d36a -NoInteraction 2>&1
+$ec36a  = $LASTEXITCODE
+$item36a = Get-Item "$sd36a\apps\scoop\current" -ErrorAction SilentlyContinue
+$isJunction36a = $item36a -and ($item36a.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+Assert "[36a] exit 0"                              ($ec36a -eq 0)
+Assert "[36a] current\ is now a junction"          ($isJunction36a)
+Assert "[36a] new scoop.ps1 reachable via current" (Test-Path "$sd36a\apps\scoop\current\bin\scoop.ps1")
+Assert "[36a] old content preserved as 0.4.0\"     (Test-Path "$sd36a\apps\scoop\0.4.0\manifest.json")
+Remove-TestDir $d36a
+
+Write-Host "[36b] Activation -- scoop current\ real folder WITHOUT scoop.ps1 (access denied regression)" -ForegroundColor Cyan
+# Partial/migrated install: current\ is a non-empty real folder WITHOUT bin\scoop.ps1.
+# Without the fix: bootstrap is entered, Remove-Item -Force on a non-empty dir -> access denied.
+$d36b = "C:\tmp\s36bd"; $sd36b = "$d36b\scoop"
+New-Item -Force -ItemType Directory "$sd36b\apps\scoop\current\somedata" | Out-Null
+Set-Content "$sd36b\apps\scoop\current\manifest.json" '{"version":"0.3.0"}' -Encoding UTF8
+Set-Content "$sd36b\apps\scoop\current\somedata\file.txt" "old content" -Encoding UTF8
+New-Item -Force -ItemType Directory "$sd36b\apps\scoop\0.5.0\bin" | Out-Null
+Set-Content "$sd36b\apps\scoop\0.5.0\bin\scoop.ps1" "# new scoop stub" -Encoding UTF8
+Set-Content "$sd36b\apps\scoop\0.5.0\manifest.json" '{"version":"0.5.0"}' -Encoding UTF8
+New-TestShims -ScoopDir $sd36b -OldBase "$sd36b\"
+$null = pwsh -File $toolkit -Path $d36b -NoInteraction 2>&1
+$ec36b  = $LASTEXITCODE
+$item36b = Get-Item "$sd36b\apps\scoop\current" -ErrorAction SilentlyContinue
+$isJunction36b = $item36b -and ($item36b.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+Assert "[36b] exit 0 (no access denied)"           ($ec36b -eq 0)
+Assert "[36b] current\ is now a junction"          ($isJunction36b)
+Assert "[36b] new scoop.ps1 reachable via current" (Test-Path "$sd36b\apps\scoop\current\bin\scoop.ps1")
+Assert "[36b] old content preserved as 0.3.0\"     (Test-Path "$sd36b\apps\scoop\0.3.0\manifest.json")
+Remove-TestDir $d36b
+
+Write-Host "[36c] Activation -- non-scoop app current\ real folder with new versioned dir" -ForegroundColor Cyan
+# Without the fix: junction loop skips real dirs (# real dir, do not touch), new version ignored.
+$d36c = "C:\tmp\s36cd"; $sd36c = "$d36c\scoop"
+New-FakeScoopStub -ScoopDir $sd36c
+New-TestShims -ScoopDir $sd36c -OldBase "$sd36c\"
+New-Item -Force -ItemType Directory "$sd36c\apps\myapp\current" | Out-Null
+Set-Content "$sd36c\apps\myapp\current\manifest.json" '{"version":"1.0.0"}' -Encoding UTF8
+Set-Content "$sd36c\apps\myapp\current\somefile.txt" "old content" -Encoding UTF8
+New-Item -Force -ItemType Directory "$sd36c\apps\myapp\2.0.0" | Out-Null
+Set-Content "$sd36c\apps\myapp\2.0.0\manifest.json" '{"version":"2.0.0"}' -Encoding UTF8
+@{ version = "99.0.0"; apps = @(@{ name = "myapp"; version = "2.0.0"; pack = "myapp-2.0.0.zip" }) } |
+    ConvertTo-Json -Depth 5 | Set-Content "$d36c\release-manifest.json" -Encoding UTF8
+$null = pwsh -File $toolkit -Path $d36c -NoInteraction 2>&1
+$ec36c  = $LASTEXITCODE
+$item36c = Get-Item "$sd36c\apps\myapp\current" -ErrorAction SilentlyContinue
+$isJunction36c = $item36c -and ($item36c.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+$ver36c = try { (Get-Content "$sd36c\apps\myapp\current\manifest.json" -Raw | ConvertFrom-Json).version } catch { "" }
+Assert "[36c] exit 0"                              ($ec36c -eq 0)
+Assert "[36c] current\ is now a junction"          ($isJunction36c)
+Assert "[36c] junction points to 2.0.0"            ($ver36c -eq "2.0.0")
+Assert "[36c] old 1.0.0 content preserved"         (Test-Path "$sd36c\apps\myapp\1.0.0\manifest.json")
+Remove-TestDir $d36c
+
+Write-Host "[37] -Clean removes orphaned app with persist junction (no access denied)" -ForegroundColor Cyan
+# Reproduces access denied: Remove-Item -Recurse on an app dir containing a persist junction
+# fails in PS5.1 because it follows the junction and hits the persist target.
+# Fix: Remove-ReparsePoints before Remove-Item -Recurse (same as Remove-StaleVersionDirs).
+$d37 = "C:\tmp\s37d"; $ps37 = "C:\tmp\s37p"
+& $helper -OutputDir $ps37 -Apps @(@{Name="keepapp";Version="1.0.0"})
+# Orphan: versioned dir with a persist junction inside (mirrors a real scoop-managed app)
+$orphanVer37   = "$d37\scoop\apps\orphan\1.0.0"
+$persistTgt37  = "$d37\scoop\persist\orphan\data"
+New-Item -Force -ItemType Directory $orphanVer37  | Out-Null
+New-Item -Force -ItemType Directory $persistTgt37 | Out-Null
+Set-Content "$persistTgt37\userfile.txt" "user data" -Encoding UTF8
+New-Item -ItemType Junction -Path "$orphanVer37\data" -Value $persistTgt37 | Out-Null
+New-Item -ItemType Junction -Path "$d37\scoop\apps\orphan\current" -Value $orphanVer37 | Out-Null
+$null = pwsh -File $toolkit update -Path $d37 `
+    -ManifestSource "$ps37\release-manifest.json" -PackSource $ps37 -NoInteraction -Clean 2>&1
+$ec37  = $LASTEXITCODE
+Assert "[37] exit 0 (no access denied)"       ($ec37 -eq 0)
+Assert "[37] orphan app dir removed"          (-not (Test-Path "$d37\scoop\apps\orphan"))
+Assert "[37] persist target untouched"        (Test-Path "$persistTgt37\userfile.txt")
+Assert "[37] keepapp still installed"         (Test-Path "$d37\scoop\apps\keepapp\current\manifest.json")
+Remove-TestDir $d37, $ps37
+
+Write-Host "[38] Remove-DirSafe — removes tree with junctions at multiple depths, targets untouched" -ForegroundColor Cyan
+# Verifies the consolidated Remove-DirSafe helper works for any nesting depth.
+# Equivalent concern to Remove-StaleVersionDirs / orphan removal but tested directly.
+$base38    = "C:\tmp\s38base"
+$tgt38a    = "C:\tmp\s38tgta"   # persist target at depth 1
+$tgt38b    = "C:\tmp\s38tgtb"   # persist target at depth 2
+New-Item -Force -ItemType Directory "$base38\subdir\leaf" | Out-Null
+New-Item -Force -ItemType Directory $tgt38a | Out-Null
+New-Item -Force -ItemType Directory $tgt38b | Out-Null
+Set-Content "$tgt38a\file.txt" "target-a" -Encoding UTF8
+Set-Content "$tgt38b\file.txt" "target-b" -Encoding UTF8
+# Junction at top level and junction inside a subdirectory
+New-Item -ItemType Junction -Path "$base38\junc-top"        -Value $tgt38a | Out-Null
+New-Item -ItemType Junction -Path "$base38\subdir\junc-sub" -Value $tgt38b | Out-Null
+Set-Content "$base38\real.txt"        "real" -Encoding UTF8
+Set-Content "$base38\subdir\real.txt" "real" -Encoding UTF8
+
+# Load Remove-DirSafe and its dependencies from toolset.ps1
+# Remove-DirSafe depends on: Remove-Junction, Remove-ReparsePoints, Test-IsReparsePoint
+$toolkitRaw = Get-Content $toolkit -Raw
+foreach ($fn in @('Remove-Junction','Remove-ReparsePoints','Test-IsReparsePoint','Remove-DirSafe')) {
+    $def = $toolkitRaw |
+        Select-String -Pattern "(?ms)function $fn.*?^}" -AllMatches |
+        ForEach-Object { $_.Matches.Value } | Select-Object -First 1
+    Invoke-Expression $def
+}
+
+Remove-DirSafe $base38
+
+Assert "[38] base dir removed"              (-not (Test-Path $base38))
+Assert "[38] top-level target untouched"    (Test-Path "$tgt38a\file.txt")
+Assert "[38] nested target untouched"       (Test-Path "$tgt38b\file.txt")
+Assert "[38] no-op on missing path"         { try { Remove-DirSafe "C:\tmp\s38-nonexistent"; $true } catch { $false } }
+Remove-TestDir $tgt38a, $tgt38b
+
+Write-Host "[39] Remove-DirSafe removes a broken junction passed as root (no silent no-op)" -ForegroundColor Cyan
+# Regression: Test-Path returns $false for a broken junction in PS5.1, so the original
+# guard silently skipped removal.  Fix: Test-IsReparsePoint detects it and calls Remove-Junction.
+$tgt39  = "C:\tmp\s39tgt"
+$junc39 = "C:\tmp\s39junc"
+New-Item -Force -ItemType Directory $tgt39 | Out-Null
+New-Item -ItemType Junction -Path $junc39 -Value $tgt39 | Out-Null
+Remove-Item $tgt39 -Force   # target gone — junction is now broken
+$attr39 = try { [System.IO.File]::GetAttributes($junc39) } catch { 0 }
+Assert "[39] precondition: broken junction exists" ([bool]($attr39 -band [System.IO.FileAttributes]::ReparsePoint))
+# Note: Test-Path returns $false for broken junctions in PS5.1 but $true in PS7 — behavior diverges,
+# so we rely on GetAttributes (above) to confirm the junction exists rather than Test-Path.
+Remove-DirSafe $junc39
+$afterAttr39 = try { [System.IO.File]::GetAttributes($junc39) -band [System.IO.FileAttributes]::ReparsePoint } catch { 0 }
+Assert "[39] broken junction removed by Remove-DirSafe" (-not (Test-Path $junc39) -and -not ([bool]$afterAttr39))
+
+Write-Host "[40] Activation recreates a broken current\ junction for a non-scoop app" -ForegroundColor Cyan
+# Reproduces: app1\current\ is a dangling junction (points to a nonexistent target).
+# Test-IsReparsePoint correctly detects it; activation must remove it and create a fresh
+# junction pointing to the versioned dir — without crashing on the broken junction.
+$p40 = "C:\tmp\s40p"; $d40 = "C:\tmp\s40d"
+Install-FreshApp -PackDir $p40 -InstallDir $d40
+$appDir40  = "$d40\scoop\apps\app1"
+$junc40    = "$appDir40\current"
+$fakeTgt40 = "C:\tmp\s40-broken-target"
+# Replace the valid current\ junction with a broken one (points to nonexistent path)
+New-Item -Force -ItemType Directory $fakeTgt40 | Out-Null
+Remove-Junction $junc40   # remove valid junction (Remove-Junction loaded above)
+New-Item -ItemType Junction -Path $junc40 -Value $fakeTgt40 | Out-Null
+Remove-Item $fakeTgt40 -Force   # target gone — current\ is now a broken junction
+$preAttr40 = try { [System.IO.File]::GetAttributes($junc40) } catch { 0 }
+Assert "[40] precondition: current is broken junction"  ([bool]($preAttr40 -band [System.IO.FileAttributes]::ReparsePoint))
+Assert "[40] precondition: current target unreachable"  (-not (Test-Path "$junc40\manifest.json" -ErrorAction SilentlyContinue))
+# Run update — Invoke-Activate is called at the end and must fix the broken junction
+pwsh -File $toolkit update -Path $d40 -ManifestSource "$p40\release-manifest.json" -PackSource $p40 -NoInteraction
+Assert "[40] current\ is now a valid junction"          (Test-IsReparsePoint $junc40)
+Assert "[40] current\ target resolves after activation" (Test-Path $junc40)
+Assert "[40] manifest.json accessible via current\"     (Test-Path "$junc40\manifest.json")
+Remove-TestDir $p40, $d40
+
+Write-Host "[40b] Activation converts a real current\ folder to a junction (fresh-install scenario)" -ForegroundColor Cyan
+# Fake packs extract into app\current\ (not app\<version>\), so after the first update current\
+# is a real directory.  Activation must detect this, rename current\ to the versioned dir,
+# and create a proper junction — making the install look identical to a normal scoop install.
+$p40b = "C:\tmp\s40bp"; $d40b = "C:\tmp\s40bd"
+& $helper -OutputDir $p40b -Apps @(@{Name="app1"; Version="1.0.0"})
+New-Item -Force -ItemType Directory $d40b | Out-Null
+pwsh -File $toolkit update -Path $d40b -ManifestSource "$p40b\release-manifest.json" -PackSource $p40b -NoInteraction
+$junc40b = "$d40b\scoop\apps\app1\current"
+Assert "[40b] current\ is a junction after first install"     (Test-IsReparsePoint $junc40b)
+Assert "[40b] current\ target resolves"                       (Test-Path $junc40b)
+Assert "[40b] manifest.json accessible via current\"          (Test-Path "$junc40b\manifest.json")
+Assert "[40b] versioned dir app1\1.0.0\ exists"               (Test-Path "$d40b\scoop\apps\app1\1.0.0")
+Remove-TestDir $p40b, $d40b
+
+Write-Host "[41a] patchBuildPaths — nodejs-lts always patched (no flag in manifest, backward compat)" -ForegroundColor Cyan
+# nodejs-lts is unconditionally patched even on old manifests that predate the patchBuildPaths field.
+$d41a = "C:\tmp\s41ad"; $sd41a = "$d41a\scoop"; $fakeCI41 = "C:\fake-ci-persist"
+New-FakeScoopStub -ScoopDir $sd41a
+New-TestShims -ScoopDir $sd41a -OldBase "$sd41a\"
+$ver41a = "$sd41a\apps\nodejs-lts\20.0.0"
+New-Item -Force -ItemType Directory $ver41a | Out-Null
+@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$ver41a\manifest.json" -Encoding UTF8
+# .npmrc embedding the fake CI persist path — exactly what gets baked in during CI build
+Set-Content "$ver41a\.npmrc" "prefix=$fakeCI41\nodejs-lts\npm-prefix`ncache=$fakeCI41\nodejs-lts\npm-cache" -Encoding UTF8
+# No patchBuildPaths on the entry — backward compat scenario
+@{
+    version = "99.0.0"; buildScoopPersistDir = $fakeCI41
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0" })
+} | ConvertTo-Json -Depth 5 | Set-Content "$d41a\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit -Path $d41a -NoInteraction 2>$null
+$ec41a    = $LASTEXITCODE
+$npmrc41a = Get-Content "$ver41a\.npmrc" -Raw
+Assert "[41a] exit 0"                          ($ec41a -eq 0)
+Assert "[41a] CI path replaced in .npmrc"      ($npmrc41a -notlike "*$fakeCI41*")
+Assert "[41a] real persist path in .npmrc"     ($npmrc41a -like "*$sd41a\persist\nodejs-lts*")
+Remove-TestDir $d41a
+
+Write-Host "[41b] patchBuildPaths — app with patchBuildPaths:true gets patched" -ForegroundColor Cyan
+$d41b = "C:\tmp\s41bd"; $sd41b = "$d41b\scoop"; $fakeCI41b = "C:\fake-ci-persist"
+New-FakeScoopStub -ScoopDir $sd41b
+New-TestShims -ScoopDir $sd41b -OldBase "$sd41b\"
+$ver41b = "$sd41b\apps\myapp\1.0.0"
+New-Item -Force -ItemType Directory $ver41b | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$ver41b\manifest.json" -Encoding UTF8
+Set-Content "$ver41b\config.ini" "path=$fakeCI41b\myapp\config" -Encoding UTF8
+@{
+    version = "99.0.0"; buildScoopPersistDir = $fakeCI41b
+    apps = @(@{ name = "myapp"; version = "1.0.0"; patchBuildPaths = $true })
+} | ConvertTo-Json -Depth 5 | Set-Content "$d41b\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit -Path $d41b -NoInteraction 2>$null
+$ec41b  = $LASTEXITCODE
+$cfg41b = Get-Content "$ver41b\config.ini" -Raw
+Assert "[41b] exit 0"                          ($ec41b -eq 0)
+Assert "[41b] CI path replaced in config.ini"  ($cfg41b -notlike "*$fakeCI41b*")
+Assert "[41b] real persist path in config.ini" ($cfg41b -like "*$sd41b\persist\myapp*")
+Remove-TestDir $d41b
+
+Write-Host "[41c] patchBuildPaths — app WITHOUT flag is NOT patched" -ForegroundColor Cyan
+$d41c = "C:\tmp\s41cd"; $sd41c = "$d41c\scoop"; $fakeCI41c = "C:\fake-ci-persist"
+New-FakeScoopStub -ScoopDir $sd41c
+New-TestShims -ScoopDir $sd41c -OldBase "$sd41c\"
+$ver41c = "$sd41c\apps\otherapp\1.0.0"
+New-Item -Force -ItemType Directory $ver41c | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$ver41c\manifest.json" -Encoding UTF8
+Set-Content "$ver41c\settings.ini" "path=$fakeCI41c\otherapp\data" -Encoding UTF8
+# No patchBuildPaths field on this app — should not be patched
+@{
+    version = "99.0.0"; buildScoopPersistDir = $fakeCI41c
+    apps = @(@{ name = "otherapp"; version = "1.0.0" })
+} | ConvertTo-Json -Depth 5 | Set-Content "$d41c\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit -Path $d41c -NoInteraction 2>$null
+$ec41c      = $LASTEXITCODE
+$settings41c = Get-Content "$ver41c\settings.ini" -Raw
+Assert "[41c] exit 0"                          ($ec41c -eq 0)
+Assert "[41c] CI path NOT replaced (no flag)"  ($settings41c -like "*$fakeCI41c*")
+Remove-TestDir $d41c
 
 if ($script:fail -gt 0) {
     Write-Host ""

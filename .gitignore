@@ -6,3 +6,5 @@
 .secrets
 .vars
 private-apps.json
+_local-build-*.json
+/build/

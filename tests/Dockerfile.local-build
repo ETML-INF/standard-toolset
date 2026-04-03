@@ -1,0 +1,13 @@
+# Local build image.
+# Used by local-build.ps1 to run build.ps1 in an isolated Windows Nano Server
+# environment, keeping the host machine's scoop installation untouched.
+# Requires the build-base image (scoop pre-installed at C:\toolset-repo\build\scoop).
+# Build the base first if needed: pwsh tests/Build-BaseImage.ps1
+ARG BASE_IMAGE=ghcr.io/etml-inf/standard-toolset/build-base:latest
+FROM ${BASE_IMAGE}
+WORKDIR C:/toolset-repo
+# build/ is excluded via .dockerignore — pre-installed scoop survives this COPY.
+# _local-build-*.json temp files (seed manifest, private apps) are included when present.
+COPY . .
+# No ENTRYPOINT — caller passes the full command via docker run.
+CMD ["pwsh", "-NoProfile", "-NonInteractive"]

@@ -82,6 +82,48 @@ try {
     scoop bucket add extras 2>$null
     scoop bucket add etml-inf https://github.com/ETML-INF/standard-toolset-bucket 2>$null
 
+    # Prevent scoop from auto-updating itself during 'scoop install'.
+    # In an isolated container there is no internet access to scoop's GitHub repo, so the
+    # git pull self-update fails with "You cannot call a method on a null-valued expression"
+    # and the whole app install is skipped.
+    # Write no_update_scoop to every location scoop may read its config from:
+    #   - scoop 0.5.x / PS7: $env:XDG_CONFIG_HOME\scoop or $env:USERPROFILE\.config\scoop
+    #   - older scoop / PS5: $env:APPDATA\scoop
+    #   - belt-and-suspenders: $buildScoopDir itself
+    # Also call 'scoop config' which always writes to whatever path scoop itself uses.
+    $env:SCOOP_NO_UPDATE_SCOOP = '1'
+    $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    $cfgDirs = @(
+        $(if ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\scoop" } else { $null }),
+        "$env:USERPROFILE\.config\scoop",
+        $(if ($env:APPDATA) { "$env:APPDATA\scoop" } else { $null }),
+        $buildScoopDir
+    ) | Where-Object { $_ }
+    foreach ($cfgDir in $cfgDirs) {
+        $cfgFile = Join-Path $cfgDir "config.json"
+        $null = New-Item -ItemType Directory -Force -Path $cfgDir
+        $cfg = if (Test-Path $cfgFile) { Get-Content $cfgFile -Raw | ConvertFrom-Json } `
+               else { [PSCustomObject]@{} }
+        $cfg | Add-Member -NotePropertyName 'no_update_scoop' -NotePropertyValue $true -Force
+        $cfg | Add-Member -NotePropertyName 'lastupdate'      -NotePropertyValue $now  -Force
+        $cfg | ConvertTo-Json | Set-Content $cfgFile -Encoding UTF8
+    }
+    # Also let scoop write the setting to its own canonical location
+    & "$buildScoopDir\shims\scoop.ps1" config no_update_scoop true 2>$null | Out-Null
+    & "$buildScoopDir\shims\scoop.ps1" config lastupdate $now 2>$null | Out-Null
+    Write-Output "Scoop auto-update disabled (no_update_scoop = true, lastupdate = $now)"
+
+    # Belt-and-suspenders: redirect scoop's own git remote to a local path so
+    # that if the config-based disable is ignored, the git pull is a harmless
+    # no-op rather than a network call that fails with a null-valued expression.
+    # file:// URLs require forward slashes on all platforms, including Windows.
+    $scoopGitDir = "$buildScoopDir\apps\scoop\current"
+    if (Test-Path "$scoopGitDir\.git") {
+        $gitUrl = "file:///" + ($scoopGitDir -replace '\\', '/')
+        git -C $scoopGitDir remote set-url origin $gitUrl 2>$null
+        Write-Output "Scoop git remote redirected to $gitUrl"
+    }
+
     Write-Output "About to install apps defined in $appJson"
     $apps = Get-Content -Raw $appJson | ConvertFrom-Json
 
@@ -106,9 +148,37 @@ try {
     # computed by Measure-SourceNoJunction, which stops at reparse points.
     # This keeps the counts consistent with what Test-AppIntegrity measures after
     # scoop activation, even if users later add files to their persist folder.
+    function Add-ZipType {
+        if (-not ([System.Management.Automation.PSTypeName]'System.IO.Compression.ZipFile').Type) {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+        }
+    }
+
+    function Expand-ZipWithProgress {
+        param([string]$ZipPath, [string]$DestinationPath)
+        Add-ZipType
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+        try {
+            $entries = @($zip.Entries); $total = $entries.Count; $i = 0
+            foreach ($entry in $entries) {
+                $i++
+                $pct    = [int](($i / [Math]::Max(1, $total)) * 20)
+                $filled = if ($pct -ge 20) { '=' * 20 } else { '=' * $pct + '>' + ' ' * (19 - $pct) }
+                Write-Host ("`r    Extracting... $i / $total  [$filled]") -NoNewline
+                $destRelative = $entry.FullName -replace '/', '\'
+                $destFile     = Join-Path $DestinationPath $destRelative
+                if ($entry.Name -eq '') { New-Item -ItemType Directory -Force -Path $destFile | Out-Null; continue }
+                $destDir = Split-Path $destFile -Parent
+                if (-not (Test-Path $destDir -PathType Container)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destFile, $true)
+            }
+            Write-Host ""
+        } finally { $zip.Dispose() }
+    }
+
     function New-ZipPack {
         param([string]$AppDir, [string]$DestZip)
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-ZipType
         $appName = Split-Path $AppDir -Leaf
         $absDir  = (Resolve-Path $AppDir).ProviderPath
         if (Test-Path -LiteralPath $DestZip) { Remove-Item -LiteralPath $DestZip -Force }
@@ -211,10 +281,11 @@ try {
                     "$repoBase/download/v$($m0.version)/$($a.pack)"
                 } else { $null }
                 $packLibrary[$key] = @{
-                    pack      = $a.pack
-                    url       = $packUrl0
-                    fileCount = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
-                    totalSize = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                    pack                  = $a.pack
+                    url                   = $packUrl0
+                    fileCount             = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
+                    totalSize             = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                    integrityExcludePaths = if ($a.PSObject.Properties['integrityExcludePaths']) { $a.integrityExcludePaths } else { $null }
                 }
             }
             Write-Output "Pack library: $($packLibrary.Count) entries (injected from $PreviousManifestPath)"
@@ -268,10 +339,11 @@ try {
                         "$repoBase/download/v$($m.version)/$($a.pack)"
                     }
                     $packLibrary[$key] = @{
-                        pack      = $a.pack
-                        url       = $packUrl
-                        fileCount = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
-                        totalSize = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                        pack                  = $a.pack
+                        url                   = $packUrl
+                        fileCount             = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
+                        totalSize             = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                        integrityExcludePaths = if ($a.PSObject.Properties['integrityExcludePaths']) { $a.integrityExcludePaths } else { $null }
                     }
                 }
                 $hop++
@@ -372,23 +444,40 @@ try {
             $key = "$($appName):$($availVer)"
             if ($packLibrary.ContainsKey($key)) {
                 $entry = $packLibrary[$key]
-                Write-Output "  Reusing $appName $availVer (pack stays at $($entry.url))"
-                # Do NOT download the pack — it will not be re-uploaded to this release.
-                # toolset.ps1 resolves the pack via packUrl in the manifest, pointing directly
-                # to the release where it was originally built.  Re-downloading + re-uploading
-                # identical bytes to every new release was the original flaw: it wasted CI time,
-                # doubled GitHub storage, and made all releases look like full rebuilds.
-                $result = [ordered]@{
-                    name    = $appName
-                    version = $availVer
-                    pack    = $entry.pack
-                    packUrl = $entry.url   # explicit URL; toolset.ps1 uses this instead of <newVersion>/<pack>
+                # If integrityExcludePaths changed, the stored fileCount/totalSize were computed
+                # under the old exclusion list.  Reusing them would make toolset.ps1 see a count
+                # mismatch on every run and trigger a reinstall loop.  Force a rebuild so the new
+                # counts are computed with the current exclusion list and stored in this manifest.
+                $currentExcl = if ($app.PSObject.Properties['integrityExcludePaths']) {
+                    @($app.integrityExcludePaths | ForEach-Object { "$_" } | Sort-Object)
+                } else { @() }
+                $storedExcl  = if ($null -ne $entry.integrityExcludePaths) {
+                    @($entry.integrityExcludePaths | ForEach-Object { "$_" } | Sort-Object)
+                } else { @() }
+                $exclMismatch = ($currentExcl -join "|") -ne ($storedExcl -join "|")
+
+                if ($exclMismatch) {
+                    Write-Output "  Rebuilding $appName $availVer (integrityExcludePaths changed)"
+                    # falls through to $appsToInstall.Add($app) below
+                } else {
+                    Write-Output "  Reusing $appName $availVer (pack stays at $($entry.url))"
+                    # Do NOT download the pack — it will not be re-uploaded to this release.
+                    # toolset.ps1 resolves the pack via packUrl in the manifest, pointing directly
+                    # to the release where it was originally built.  Re-downloading + re-uploading
+                    # identical bytes to every new release was the original flaw: it wasted CI time,
+                    # doubled GitHub storage, and made all releases look like full rebuilds.
+                    $result = [ordered]@{
+                        name    = $appName
+                        version = $availVer
+                        pack    = $entry.pack
+                        packUrl = $entry.url   # explicit URL; toolset.ps1 uses this instead of <newVersion>/<pack>
+                    }
+                    if ($null -ne $entry.fileCount) { $result['fileCount'] = $entry.fileCount }
+                    if ($null -ne $entry.totalSize)  { $result['totalSize'] = $entry.totalSize }
+                    $packResults[$appName] = $result
+                    $reusedCount++
+                    $reused = $true
                 }
-                if ($null -ne $entry.fileCount) { $result['fileCount'] = $entry.fileCount }
-                if ($null -ne $entry.totalSize)  { $result['totalSize'] = $entry.totalSize }
-                $packResults[$appName] = $result
-                $reusedCount++
-                $reused = $true
             }
         }
 
@@ -398,6 +487,33 @@ try {
     }
 
     Write-Output "Plan: install $($appsToInstall.Count) apps, reuse $reusedCount packs"
+
+    # ── Pre-install reused apps from local pack zips ──────────────────────
+    # Reused apps are not re-downloaded, but scoop needs their files present in
+    # build\scoop\apps\ to resolve dependencies during 'scoop install'. Without
+    # this, installing vscode (which depends on 7zip) fails in NanoServer because
+    # scoop tries to download and install 7zip via MSI, but msiexec.exe is absent.
+    # Extracting the pack zip from the seed library pre-populates the app dir so
+    # scoop sees the app as already installed and skips the download entirely.
+    foreach ($key in $packLibrary.Keys) {
+        $entry      = $packLibrary[$key]
+        $appKey     = $key -split ':', 2
+        $appName    = $appKey[0]
+        $packVersion = if ($appKey.Count -gt 1) { $appKey[1] } else { '' }
+        $appDir     = "$buildScoopDir\apps\$appName"
+        if (Test-Path $appDir) { continue }          # already installed in scoop
+        $packUrl = $entry.url
+        if (-not $packUrl -or $packUrl -match '^https?://') { continue }  # remote URLs only available at client-side
+        if (-not (Test-Path $packUrl)) { continue }  # local pack not accessible here
+
+        Write-Output "  Pre-installing $appName $packVersion from pack (dependency support)..."
+        Expand-ZipWithProgress -ZipPath $packUrl -DestinationPath "$buildScoopDir\apps"
+        $versionDir = "$appDir\$packVersion"
+        $currentDir = "$appDir\current"
+        if ((Test-Path $versionDir) -and -not (Test-Path $currentDir)) {
+            New-Item -ItemType Junction -Path $currentDir -Value $versionDir | Out-Null
+        }
+    }
 
     # ── Install only apps that need rebuilding ────────────────────────────
     foreach ($app in $appsToInstall) {
@@ -410,7 +526,12 @@ try {
                 $installName = "$installName@$($app.version)"
             }
             Write-Host "Installing $installName..." -ForegroundColor Green
-            scoop install $installName
+            # --no-update-scoop: scoop 0.5.x checks is_scoop_outdated before every install
+            # and calls scoop-update.ps1 when true. In an isolated container the git pull
+            # inside scoop-update.ps1 fails with a null-valued expression and aborts the
+            # whole install. The flag bypasses the update check entirely, regardless of the
+            # no_update_scoop config setting (which only affects is_scoop_outdated).
+            scoop install --no-update-scoop $installName
         } catch {
             Write-Warning "Failed to install $($app.name): $_"
         }
@@ -483,6 +604,7 @@ try {
             $entry = $packResults[$app.name]
             if ($app.PSObject.Properties['paths2DropToEnableMultiUser']) { $entry['paths2DropToEnableMultiUser'] = $app.paths2DropToEnableMultiUser }
             if ($app.PSObject.Properties['integrityExcludePaths'])       { $entry['integrityExcludePaths']       = $app.integrityExcludePaths }
+            if ($app.PSObject.Properties['patchBuildPaths'])             { $entry['patchBuildPaths']             = $app.patchBuildPaths }
             $manifestApps += $entry
         }
     }

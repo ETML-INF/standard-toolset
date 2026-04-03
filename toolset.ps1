@@ -7,6 +7,7 @@ param(
     [string]$Version = "",
     [string]$ManifestSource = "",
     [string]$PackSource = "",
+    [string]$LDrivePath = "L:\toolset",
     [string]$LogFile = ""
 )
 
@@ -134,6 +135,51 @@ function Invoke-Activate {
         }
     }
 
+    # If scoop\apps\scoop\current\ is a real folder (not a junction) AND versioned dirs exist,
+    # rename it to its detected version before the bootstrap runs.  Leaving it as-is causes:
+    #   - "access denied": Remove-Item -Force (no -Recurse) on a non-empty real dir (line below)
+    #   - silent wrong-version: bin\scoop.ps1 found so bootstrap is skipped, old binary activated
+    $scoopCurrentDir = "$scoopdir\apps\scoop\current"
+    $scoopCurrentDirItem = Get-Item $scoopCurrentDir -Force -ErrorAction SilentlyContinue
+    if ($scoopCurrentDirItem -and
+        -not ($scoopCurrentDirItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -and
+        $scoopCurrentDirItem.PSIsContainer) {
+        $scoopVersionedDirs = Get-ChildItem "$scoopdir\apps\scoop" -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'current' }
+        if ($scoopVersionedDirs) {
+            $priorVer = $null
+            if (Test-Path "$scoopCurrentDir\manifest.json" -ErrorAction SilentlyContinue) {
+                try { $priorVer = (Get-Content "$scoopCurrentDir\manifest.json" -Raw | ConvertFrom-Json).version } catch {}
+            }
+            if (-not $priorVer) {
+                $priorVer = Get-ScoopVersionFromBinary "$scoopCurrentDir\bin\scoop.ps1"
+            }
+            $priorVerName   = if ($priorVer) { $priorVer } else { 'unknown' }
+            $priorVerTarget = "$scoopdir\apps\scoop\$priorVerName"
+            Write-Host "  scoop current\ is a real folder - renaming to $priorVerName\ for junction migration..." -ForegroundColor Yellow
+            if (-not (Test-Path $priorVerTarget -ErrorAction SilentlyContinue)) {
+                Rename-Item -LiteralPath $scoopCurrentDir -NewName $priorVerName -ErrorAction SilentlyContinue
+            } else {
+                # Target versioned dir already exists (e.g. reinstall of same version or pack just
+                # extracted) - rename to 'unknown' to preserve content without overwriting the pack.
+                $unknownTarget = "$scoopdir\apps\scoop\unknown"
+                if (-not (Test-Path $unknownTarget -ErrorAction SilentlyContinue)) {
+                    Rename-Item -LiteralPath $scoopCurrentDir -NewName 'unknown' -ErrorAction SilentlyContinue
+                } else {
+                    Remove-DirSafe $scoopCurrentDir
+                }
+            }
+        }
+        # Sanity check: if current\ is still a real folder after all rename/remove attempts,
+        # the migration silently failed (locked file?).  bin\scoop.ps1 may still be found
+        # inside it, causing the bootstrap below to be skipped and the old binary to be used.
+        if (Test-Path $scoopCurrentDir -ErrorAction SilentlyContinue) {
+            if (-not (Test-IsReparsePoint $scoopCurrentDir)) {
+                Write-Warning "Could not vacate $scoopCurrentDir (rename/remove failed) - activation may use wrong scoop version"
+            }
+        }
+    }
+
     $scoopPs1 = "$scoopdir\apps\scoop\current\bin\scoop.ps1"
     if (-not (Test-Path $scoopPs1 -ErrorAction SilentlyContinue)) {
         # current\ junction missing - fresh install or scoop update.
@@ -151,7 +197,9 @@ function Invoke-Activate {
                     Write-Warning "Could not remove scoop bootstrap junction '$junctionPath' - activation may be incomplete"
                 }
             } elseif (Test-Path $junctionPath) {
-                Remove-Item -LiteralPath $junctionPath -Force
+                # Real (non-empty) dir left by a failed Rename-Item - use Remove-DirSafe so
+                # PS5.1 doesn't throw "directory not empty" from Remove-Item -Force (no -Recurse).
+                Remove-DirSafe $junctionPath
             }
             if (-not (Test-IsReparsePoint $junctionPath) -and -not (Test-Path $junctionPath)) {
                 New-Item -ItemType Junction -Path $junctionPath -Value $scoopVerDir.FullName | Out-Null
@@ -164,22 +212,52 @@ function Invoke-Activate {
     # files), scoop would re-link to the old version even though the new versioned dir
     # was just extracted.  Pointing current\ at the new version first fixes that.
     $localManifestPath = Join-Path $toolsetdir "release-manifest.json"
-    if (Test-Path $localManifestPath -ErrorAction SilentlyContinue) {
-        $mfForReset = Get-Content $localManifestPath -Raw | ConvertFrom-Json
-        foreach ($appEntry in $mfForReset.apps) {
-            if ($appEntry.name -eq 'scoop') { continue }
+    $mf = if (Test-Path $localManifestPath -ErrorAction SilentlyContinue) {
+        Get-Content $localManifestPath -Raw | ConvertFrom-Json
+    } else { $null }
+    if ($mf) {
+        foreach ($appEntry in $mf.apps) {
             # version may be absent on legacy/partial manifest entries - skip them
             if (-not $appEntry.PSObject.Properties['version']) { continue }
             $appDir     = "$scoopdir\apps\$($appEntry.name)"
             $verDir     = "$appDir\$($appEntry.version)"
-            if (-not (Test-Path $verDir -ErrorAction SilentlyContinue)) { continue }
             $jPath      = "$appDir\current"
             # Use Test-IsReparsePoint (raw attribute read) so broken junctions (target
             # deleted/renamed) are detected correctly -- Get-Item returns $null for broken
             # junctions in PS5.1 making the Attributes check unreliable.
             $isJunction = Test-IsReparsePoint $jPath
             $exists     = $isJunction -or (Test-Path $jPath -ErrorAction SilentlyContinue)
-            if ($exists -and -not $isJunction) { continue }   # real dir, do not touch
+            if ($exists -and -not $isJunction) {
+                # current\ is a real folder - rename to its detected version so a proper junction
+                # can be created.  Without this the new versioned dir is silently ignored: scoop
+                # reset reads the old manifest and re-links to the old version.
+                $priorVerInDir = $null
+                if (Test-Path "$jPath\manifest.json" -ErrorAction SilentlyContinue) {
+                    try { $priorVerInDir = (Get-Content "$jPath\manifest.json" -Raw | ConvertFrom-Json).version } catch {}
+                }
+                $priorVerDirName = if ($priorVerInDir) { $priorVerInDir } else { 'unknown' }
+                $priorVerDirPath = "$appDir\$priorVerDirName"
+                Write-Host "  $($appEntry.name) current\ is a real folder - renaming to $priorVerDirName\" -ForegroundColor Yellow
+                if (-not (Test-Path $priorVerDirPath -ErrorAction SilentlyContinue)) {
+                    Rename-Item -LiteralPath $jPath -NewName $priorVerDirName -ErrorAction SilentlyContinue
+                } else {
+                    # Target already exists (reinstall or pack just extracted) - preserve as 'unknown'
+                    $unknownAppDir = "$appDir\unknown"
+                    if (-not (Test-Path $unknownAppDir -ErrorAction SilentlyContinue)) {
+                        Rename-Item -LiteralPath $jPath -NewName 'unknown' -ErrorAction SilentlyContinue
+                    } else {
+                        Remove-DirSafe $jPath
+                    }
+                }
+                if (Test-Path $jPath -ErrorAction SilentlyContinue) {
+                    Write-Warning "$($appEntry.name): could not vacate current\ (rename/remove failed) - junction not updated, version may be stale"
+                    continue
+                }
+                # If the rename produced the exact versioned dir we need, point $verDir at it
+                if ($priorVerDirName -eq $appEntry.version) { $verDir = $priorVerDirPath }
+            }
+            # Nothing to point current\ at - versioned dir not yet extracted
+            if (-not (Test-Path $verDir -ErrorAction SilentlyContinue)) { continue }
             if ($isJunction) {
                 Remove-Junction $jPath
                 if (Test-IsReparsePoint $jPath) {
@@ -198,6 +276,9 @@ function Invoke-Activate {
         Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
         & $scoopPs1 reset *
     } else {
+        if (-not (Test-Path $scoopdir -ErrorAction SilentlyContinue)) {
+            throw "scoop.ps1 not found at $scoopPs1 - broken install detected (run update to repair)"
+        }
         Write-Warning "scoop.ps1 not found at $scoopPs1 - skipping junction reset (will complete on next activation)"
     }
 
@@ -207,10 +288,7 @@ function Invoke-Activate {
     # Deleting the junction leaves persist data intact but forces apps to use per-user dirs.
     Write-Host "Configuring per-user app settings..." -ForegroundColor Green
     $dropped = 0
-    $mf = $null
-    $localManifest = Join-Path $toolsetdir "release-manifest.json"
-    if (Test-Path $localManifest -ErrorAction SilentlyContinue) {
-        $mf = Get-Content $localManifest -Raw | ConvertFrom-Json
+    if ($mf) {
         foreach ($appEntry in $mf.apps) {
             if (-not $appEntry.PSObject.Properties['paths2DropToEnableMultiUser']) { continue }
             foreach ($rel in $appEntry.paths2DropToEnableMultiUser) {
@@ -240,6 +318,7 @@ function Invoke-Activate {
     Write-Host "Updating scoop shims for path $toolsetdir..." -ForegroundColor Green
     $shimpath = "$scoopdir\shims"
     @("$shimpath\scoop","$shimpath\scoop.cmd","$shimpath\scoop.ps1") | ForEach-Object {
+        if (-not (Test-Path $_ -ErrorAction SilentlyContinue)) { return }   # absent on partial/interrupted install
         $c = Get-Content $_ -Raw
         $newContent = [System.Text.RegularExpressions.Regex]::Replace(
             $c, '[A-Z]:.*?\\scoop\\',
@@ -282,30 +361,42 @@ function Invoke-Activate {
     # Admin Node.js detection
     Invoke-NodeCheck -toolsetdir $toolsetdir -NoInteraction $NoInteraction
 
-    # Fix nodejs-lts npm paths
-    # During CI build, npm embeds the CI persist path (D:\a\...\build\scoop\persist\nodejs-lts)
-    # into text config/script files. We replace that CI path with the user's actual persist dir.
-    # Scans all text-like files in the versioned dir + persist dir (skips binaries by extension).
-    # (See also: ETML-INF/standard-toolset PR #21 which identified this issue in the old arch.)
-    if (Test-Path "$scoopdir\apps\nodejs-lts\current\manifest.json") {
-        Write-Host "Fixing nodejs-lts paths..." -ForegroundColor Green
-        $version = (Get-Content "$scoopdir\apps\nodejs-lts\current\manifest.json" | ConvertFrom-Json).version
-        # Read the CI build persist path from the release manifest so we don't hardcode
-        # the GitHub Actions workspace directory (D:\a\<repo>\<repo>\build\scoop\persist).
-        # Escape backslashes for PowerShell -replace (which uses regex), then append \nodejs-lts.
-        $oldPattern = if ($mf -and $mf.PSObject.Properties['buildScoopPersistDir']) {
-            ($mf.buildScoopPersistDir -replace '\\', '\\\\') + '\\nodejs-lts'
-        } else {
-            'D:\\a\\standard-toolset\\standard-toolset\\build\\scoop\\persist\\nodejs-lts'
-        }
-        $newPersist = "$scoopdir\persist\nodejs-lts"  # where npm cache/prefix live at runtime
+    # Fix CI build paths embedded in installed apps
+    # During the GitHub Actions build, scoop embeds the runner's persist path into text config/script
+    # files (e.g. nodejs-lts npmrc). We replace that CI path with the user's actual persist dir.
+    # Apps opt in via patchBuildPaths:true in apps.json.
+    # nodejs-lts is always patched regardless of the manifest flag: it was the first app affected
+    # (PR #21) and old manifests predate the patchBuildPaths field, so we keep it unconditional
+    # for backward compat with any existing install.
+    #
+    # Default CI persist base = real GitHub Actions Windows runner path baked in at build time.
+    # buildScoopPersistDir in the release manifest overrides this for test injection only.
+    if ($mf) {
+    $buildPersistBase = if ($mf.PSObject.Properties['buildScoopPersistDir']) {
+        $mf.buildScoopPersistDir
+    } else {
+        'D:\a\standard-toolset\standard-toolset\build\scoop\persist'
+    }
+    # Text-like extensions that may embed absolute paths - skip binaries for speed and safety
+    $textExts = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
 
-        # Text-like extensions that may embed absolute paths  - skip binaries for speed and safety
-        $textExts = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
+    foreach ($appEntry in $mf.apps) {
+        $shouldPatch = ($appEntry.name -eq 'nodejs-lts') -or
+                       ($appEntry.PSObject.Properties['patchBuildPaths'] -and $appEntry.patchBuildPaths -eq $true)
+        if (-not $shouldPatch) { continue }
+
+        $appName = $appEntry.name
+        if (-not (Test-Path "$scoopdir\apps\$appName\current\manifest.json")) { continue }
+
+        Write-Host "Fixing $appName paths..." -ForegroundColor Green
+        $version = (Get-Content "$scoopdir\apps\$appName\current\manifest.json" | ConvertFrom-Json).version
+
+        $oldPattern = [regex]::Escape($buildPersistBase + '\' + $appName)
+        $newPersist = "$scoopdir\persist\$appName"
 
         $scanRoots = @(
-            "$scoopdir\apps\nodejs-lts\$version",  # full versioned install (node_modules etc.)
-            "$scoopdir\persist\nodejs-lts"          # persist dir (npmrc cache/prefix settings)
+            "$scoopdir\apps\$appName\$version",  # full versioned install
+            "$scoopdir\persist\$appName"          # persist dir
         )
         foreach ($root in $scanRoots) {
             if (-not (Test-Path $root)) { continue }
@@ -313,19 +404,18 @@ function Invoke-Activate {
             try { $files = [System.IO.Directory]::EnumerateFiles($root, '*', [System.IO.SearchOption]::AllDirectories) }
             catch { continue }
             foreach ($file in $files) {
+                if ($file -like '*\node_modules\*') { continue }  # skip large dep trees
                 $ext = [System.IO.Path]::GetExtension($file)
                 if (-not $ext -or $textExts -notcontains $ext.ToLowerInvariant()) { continue }
                 $c = Get-Content $file -Raw -ErrorAction SilentlyContinue
                 if ($c -and $c -match $oldPattern) {
-                    $updated = [System.Text.RegularExpressions.Regex]::Replace(
-                        $c, $oldPattern,
-                        [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $newPersist }
-                    )
+                    $updated = $c -replace $oldPattern, $newPersist
                     [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
                 }
             }
         }
-    }
+    } # end foreach ($appEntry in $mf.apps)
+    } # end if ($mf) patchBuildPaths
 
     # Desktop shortcut
     $scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
@@ -352,6 +442,83 @@ function Invoke-Activate {
 
 # -- manifest + pack helpers (used by update mode) -------------------------
 
+function Add-ZipType {
+    # Loads System.IO.Compression.FileSystem if not already available.
+    # Required on PS5.1 (Win10+, .NET Framework 4.5+). No-op on PS7.
+    if (-not ([System.Management.Automation.PSTypeName]'System.IO.Compression.ZipFile').Type) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+    }
+}
+
+function Expand-ZipWithProgress {
+    # Replaces Expand-Archive. Extracts a zip entry-by-entry using ZipFile so we
+    # can display a live progress bar. Overwrites existing files.
+    param([string]$ZipPath, [string]$DestinationPath)
+    Add-ZipType
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $entries = @($zip.Entries)
+        $total   = $entries.Count
+        $i       = 0
+        foreach ($entry in $entries) {
+            $i++
+            $pct    = [int](($i / [Math]::Max(1, $total)) * 20)
+            $filled = if ($pct -ge 20) { '=' * 20 } else { '=' * $pct + '>' + ' ' * (19 - $pct) }
+            Write-Host ("`r    Extracting... $i / $total  [$filled]") -NoNewline
+
+            $destRelative = $entry.FullName -replace '/', '\'
+            $destFile     = Join-Path $DestinationPath $destRelative
+
+            if ($entry.Name -eq '') {
+                New-Item -ItemType Directory -Force -Path $destFile | Out-Null
+                continue
+            }
+            $destDir = Split-Path $destFile -Parent
+            if (-not (Test-Path $destDir -PathType Container)) {
+                New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+            }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destFile, $true)
+        }
+        Write-Host ""
+    } finally {
+        $zip.Dispose()
+    }
+}
+
+function Copy-WithProgress {
+    param([string]$Source, [string]$Destination, [string]$Label = "")
+    $srcSize = (Get-Item $Source).Length
+    $bufSize = 1MB
+    $buf     = [byte[]]::new($bufSize)
+    $src     = [System.IO.File]::OpenRead($Source)
+    try {
+        $dst = [System.IO.File]::Create($Destination)
+        try {
+            $copied = 0
+            $sw     = [System.Diagnostics.Stopwatch]::StartNew()
+            while (($read = $src.Read($buf, 0, $bufSize)) -gt 0) {
+                $dst.Write($buf, 0, $read)
+                $copied   += $read
+                $mbCopied  = [math]::Round($copied / 1MB, 1)
+                $mbTotal   = [math]::Round($srcSize / 1MB, 1)
+                $pct       = [int](($copied / [Math]::Max(1, $srcSize)) * 20)
+                $filled    = if ($pct -ge 20) { '=' * 20 } else { '=' * $pct + '>' + ' ' * (19 - $pct) }
+                $elapsed   = $sw.Elapsed.TotalSeconds
+                $speedStr  = if ($elapsed -gt 0) {
+                    $speed = $copied / $elapsed / 1MB
+                    if ($speed -ge 1000) { "{0:N0} GB/s" -f ($speed / 1000) }
+                    else                 { "{0:N1} MB/s" -f $speed }
+                } else { "" }
+                Write-Host ("`r    Copying...   $mbCopied / $mbTotal MB  [$filled]  $speedStr  ") -NoNewline
+            }
+            Write-Host ""
+        } finally { $dst.Dispose() }
+    } catch {
+        Write-Host ""
+        throw
+    } finally { $src.Dispose() }
+}
+
 function Invoke-Download {
     param(
         [string]$Url,
@@ -375,10 +542,12 @@ function Invoke-Download {
             Start-Sleep -Seconds 3
             $progress = Get-BitsTransfer -JobId $job.JobId
             if ($progress.BytesTransferred -gt 0 -and $progress.BytesTotal -gt 0) {
-                $pct = [math]::Round(($progress.BytesTransferred / $progress.BytesTotal) * 100, 1)
-                $mb  = [math]::Round($progress.BytesTransferred / 1MB, 1)
-                $tot = [math]::Round($progress.BytesTotal / 1MB, 1)
-                Write-Host ("`r" + " " * 80 + "`r  $label... $pct% ($mb / $tot MB)") -NoNewline
+                $pct      = [math]::Round(($progress.BytesTransferred / $progress.BytesTotal) * 100, 1)
+                $mb       = [math]::Round($progress.BytesTransferred / 1MB, 1)
+                $tot      = [math]::Round($progress.BytesTotal / 1MB, 1)
+                $p        = [int]($pct / 5)
+                $dlFilled = if ($p -ge 20) { '=' * 20 } else { '=' * $p + '>' + ' ' * (19 - $p) }
+                Write-Host ("`r    Downloading...  $mb / $tot MB  [$dlFilled]  ") -NoNewline
             }
             if ($progress.BytesTransferred -ne $lastBytes) {
                 $lastBytes  = $progress.BytesTransferred
@@ -493,7 +662,8 @@ function Get-ReleaseManifest {
         [bool]$NoInteraction = $false
     )
     if ($ManifestSource -and (Test-Path $ManifestSource)) {
-        return Get-Content $ManifestSource -Raw | ConvertFrom-Json
+        Write-Host "  Manifest source: $ManifestSource" -ForegroundColor DarkGray
+        return Merge-PrivateApps (Get-Content $ManifestSource -Raw | ConvertFrom-Json) $LDrivePath
     }
 
     # Primary source is always L: (internal network drive)  - fast, no auth, works offline from Internet.
@@ -509,6 +679,7 @@ function Get-ReleaseManifest {
 
     if (Test-Path $lManifest) {
         $manifest = Get-Content $lManifest -Raw | ConvertFrom-Json
+        Write-Host "  Manifest source: LAN ($lManifest)" -ForegroundColor DarkGray
 
         # Non-blocking freshness check: compare the L: version against the latest on GitHub.
         # Only done for the unversioned (latest) case  - a pinned -Version is intentional
@@ -521,10 +692,13 @@ function Get-ReleaseManifest {
                 $ghManifest = Invoke-RestMethod "$repoBase/latest/download/release-manifest.json" `
                                   -TimeoutSec 5 -ErrorAction Stop
                 if ($ghManifest.version -ne $manifest.version) {
-                    Write-Warning "L:\toolset has v$($manifest.version) but GitHub has v$($ghManifest.version). Run offline-download.ps1 to refresh the network drive."
+                    Write-Warning "LAN has v$($manifest.version) but GitHub has v$($ghManifest.version). Run offline-download.ps1 to refresh the network drive."
                     if (-not $NoInteraction) {
-                        $answer = Read-Host "Use GitHub version v$($ghManifest.version) now instead? [Y/N]"
-                        if ($answer -match '^[Yy]$') { return Merge-PrivateApps $ghManifest $LDrivePath }
+                        $answer = Read-Host "Use GitHub version v$($ghManifest.version) now instead? [Y/n]"
+                        if ($answer -notmatch '^[Nn]') {
+                            Write-Host "  Manifest source: remote/GitHub" -ForegroundColor DarkGray
+                            return Merge-PrivateApps $ghManifest $LDrivePath
+                        }
                     }
                 }
             } catch { Write-Verbose "GitHub freshness check skipped: $_" }
@@ -535,11 +709,11 @@ function Get-ReleaseManifest {
 
     # L: not available  - decide whether to try GitHub
     if ($NoInteraction) {
-        throw "L:\toolset is not available and -NoInteraction prevents falling back to GitHub. Mount the drive or pass -ManifestSource explicitly."
+        throw "LAN ($LDrivePath) is not available and -NoInteraction prevents falling back to GitHub. Mount the drive or pass -ManifestSource explicitly."
     }
-    $answer = Read-Host "L:\toolset is not available. Download manifest from GitHub instead? [Y/N]"
-    if ($answer -notmatch '^[Yy]$') {
-        throw "Aborted by user. Mount L:\toolset or pass -ManifestSource explicitly."
+    $answer = Read-Host "LAN ($LDrivePath) is not available. Download manifest from GitHub instead? [Y/n]"
+    if ($answer -match '^[Nn]') {
+        throw "Aborted by user. Mount $LDrivePath or pass -ManifestSource explicitly."
     }
 
     $url = if ([string]::IsNullOrEmpty($Version)) {
@@ -548,7 +722,9 @@ function Get-ReleaseManifest {
         "$repoBase/download/v$Version/release-manifest.json"
     }
     try {
-        return Merge-PrivateApps (Invoke-RestMethod $url -ErrorAction Stop) $LDrivePath
+        $result = Merge-PrivateApps (Invoke-RestMethod $url -ErrorAction Stop) $LDrivePath
+        Write-Host "  Manifest source: remote/GitHub" -ForegroundColor DarkGray
+        return $result
     } catch {
         throw "GitHub manifest fetch failed: $_"
     }
@@ -683,24 +859,73 @@ function Test-PreExtractedDir {
     return "ok"
 }
 
+function Resolve-ToArchives {
+    <#
+    .SYNOPSIS
+        Moves a downloaded pack zip into the local archives cache directory.
+    .DESCRIPTION
+        Called after every successful L:\ or GitHub pack download to populate the
+        local archives cache.  Uses Move-Item (not Copy-Item) to avoid a second copy
+        on disk.  Returns the new archives path on success, or the original path if
+        the move fails (so the install can still proceed from TEMP).
+        No-op when ArchivesDir is empty - returns TmpPath unchanged.
+    #>
+    param([string]$TmpPath, [string]$ArchivesDir, [string]$PackName)
+    if ([string]::IsNullOrEmpty($ArchivesDir)) { return $TmpPath }
+    $dest = Join-Path $ArchivesDir $PackName
+    try {
+        $null = New-Item -ItemType Directory -Force -Path $ArchivesDir
+        Move-Item $TmpPath $dest -Force -ErrorAction Stop
+        return $dest
+    } catch {
+        Write-Warning "Archives cache write skipped: $_"
+        return $TmpPath
+    }
+}
+
 function Get-Pack {
     param(
         [object]$App,
         [string]$PackSource,
         [string]$Version,
         [bool]$NoInteraction = $false,
-        [string]$LDrivePath = "L:\toolset"
+        [string]$LDrivePath = "L:\toolset",
+        [string]$ArchivesDir = ""
     )
     $packName = $App.pack
     $packDir  = $packName -replace '\.zip$', ''   # pre-extracted directory name
     $tmpFile  = "$env:TEMP\$packName"
+
+    # Archives cache hit: return the cached zip directly (no TEMP copy needed)
+    if (-not [string]::IsNullOrEmpty($ArchivesDir)) {
+        $cachedPath = Join-Path $ArchivesDir $packName
+        if (Test-Path $cachedPath) {
+            Write-Host " [cache]" -ForegroundColor DarkGray
+            return $cachedPath
+        }
+    }
+
+    # Private apps carry a local-path packUrl (set by Merge-PrivateApps).
+    # Resolve them immediately before any PackSource check so they are never
+    # rejected with "Pack not found in PackSource".
+    $isLocalPackUrl = $App.PSObject.Properties['packUrl'] -and $App.packUrl -and
+                      ($App.packUrl -match '^[A-Za-z]:\\' -or $App.packUrl -match '^\\\\')
+    if ($isLocalPackUrl) {
+        if (-not (Test-Path $App.packUrl)) {
+            throw "Local pack not accessible: $($App.packUrl)"
+        }
+        Write-Host " [L:\]" -ForegroundColor DarkGray
+        Copy-WithProgress $App.packUrl $tmpFile $packName
+        $tmpFile = Resolve-ToArchives $tmpFile $ArchivesDir $packName
+        return $tmpFile
+    }
 
     if ($PackSource) {
         $local    = Join-Path $PackSource $packName
         $localDir = Join-Path $PackSource $packDir
         if (Test-Path $localDir -PathType Container) {
             $check = Test-PreExtractedDir $localDir $App -ZipPath $local
-            if ($check -eq "ok")              { Write-Host " [pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $localDir }
+            if ($check -eq "ok")              { Write-Host " [pre-extracted]" -ForegroundColor DarkGray; return $localDir }
             if ($check -like "count_mismatch:*") {
                 $parts = $check.Split(':')
                 $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
@@ -708,15 +933,15 @@ function Get-Pack {
                     $zipNote = if (Test-Path $local) { "Using zip." } else { "No zip found in PackSource  - this app will be skipped." }
                     Write-Warning "$msg $zipNote"
                 } else {
-                    $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
-                    if ($ans -notmatch '^[Yy]$') { Write-Host " [pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $localDir }
+                    $ans = Read-Host "$msg Re-extract from zip? [Y/n]"
+                    if ($ans -match '^[Nn]') { Write-Host " [pre-extracted]" -ForegroundColor DarkGray; return $localDir }
                 }
-                if (Test-Path $local) { Write-Host " [PackSource]" -ForegroundColor DarkGray -NoNewline; return $local }
+                if (Test-Path $local) { Write-Host " [PackSource]" -ForegroundColor DarkGray; return $local }
             } else {
                 Write-Warning "Pre-extracted $packDir version mismatch  - falling back to zip"
             }
         }
-        if (Test-Path $local) { Write-Host " [PackSource]" -ForegroundColor DarkGray -NoNewline; return $local }
+        if (Test-Path $local) { Write-Host " [PackSource]" -ForegroundColor DarkGray; return $local }
         throw "Pack not found in PackSource: $local"
     }
 
@@ -725,7 +950,7 @@ function Get-Pack {
     $lDirPath = "$lBase\$packDir"
     if (Test-Path $lDirPath -PathType Container) {
         $check = Test-PreExtractedDir $lDirPath $App -ZipPath $lPath
-        if ($check -eq "ok")              { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $lDirPath }
+        if ($check -eq "ok")              { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray; return $lDirPath }
         if ($check -like "count_mismatch:*") {
             $parts = $check.Split(':')
             $msg   = "Pre-extracted $packDir has $($parts[2]) files but zip has $($parts[1]) entries."
@@ -733,12 +958,13 @@ function Get-Pack {
                 $zipNote = if (Test-Path $lPath) { "Using zip." } else { "No zip found on L:  - will attempt GitHub download." }
                 Write-Warning "$msg $zipNote"
             } else {
-                $ans = Read-Host "$msg Re-extract from zip? [Y/N]"
-                if ($ans -notmatch '^[Yy]$') { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray -NoNewline; return $lDirPath }
+                $ans = Read-Host "$msg Re-extract from zip? [Y/n]"
+                if ($ans -match '^[Nn]') { Write-Host " [L:\pre-extracted]" -ForegroundColor DarkGray; return $lDirPath }
             }
             if (Test-Path $lPath) {
-                Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
-                Copy-Item $lPath $tmpFile -Force
+                Write-Host " [L:\]" -ForegroundColor DarkGray
+                Copy-WithProgress $lPath $tmpFile $packName
+                $tmpFile = Resolve-ToArchives $tmpFile $ArchivesDir $packName
                 return $tmpFile
             }
         } else {
@@ -746,8 +972,9 @@ function Get-Pack {
         }
     }
     if (Test-Path $lPath) {
-        Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
-        Copy-Item $lPath $tmpFile -Force
+        Write-Host " [L:\]" -ForegroundColor DarkGray
+        Copy-WithProgress $lPath $tmpFile $packName
+        $tmpFile = Resolve-ToArchives $tmpFile $ArchivesDir $packName
         return $tmpFile
     }
 
@@ -762,8 +989,9 @@ function Get-Pack {
         foreach ($folder in $otherFolders) {
             $altPath = Join-Path $folder.FullName $packName
             if (Test-Path $altPath) {
-                Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
-                Copy-Item $altPath $tmpFile -Force
+                Write-Host " [L:\]" -ForegroundColor DarkGray
+                Copy-WithProgress $altPath $tmpFile $packName
+                $tmpFile = Resolve-ToArchives $tmpFile $ArchivesDir $packName
                 return $tmpFile
             }
         }
@@ -786,13 +1014,15 @@ function Get-Pack {
         if (-not (Test-Path $url)) {
             throw "Local pack not accessible: $url"
         }
-        Write-Host " [L:\]" -ForegroundColor DarkGray -NoNewline
-        Copy-Item $url $tmpFile -Force
+        Write-Host " [L:\]" -ForegroundColor DarkGray
+        Copy-WithProgress $url $tmpFile $packName
+        $tmpFile = Resolve-ToArchives $tmpFile $ArchivesDir $packName
         return $tmpFile
     }
-    Write-Host " [GitHub]" -ForegroundColor DarkGray -NoNewline
+    Write-Host " [GitHub]" -ForegroundColor DarkGray
     try {
         Invoke-Download -Url $url -OutFile $tmpFile -Description $packName
+        $tmpFile = Resolve-ToArchives $tmpFile $ArchivesDir $packName
         return $tmpFile
     } catch {
         throw "Cannot download $packName from L: or GitHub: $_"
@@ -955,6 +1185,30 @@ function Remove-ReparsePoints {
     }
 }
 
+function Remove-DirSafe {
+    <#
+    .SYNOPSIS
+        Removes a directory tree safely on both PS5.1 and PS7.
+    .DESCRIPTION
+        Strips all junction links first (without following them into their targets),
+        then removes the remaining real content with Remove-Item -Recurse.
+        This two-step pattern is required on PS5.1 / .NET 4.x where Remove-Item -Recurse
+        follows junctions during enumeration and raises "Access Denied" when the persist
+        target contains files.  PS7 handles junctions correctly on its own, but the guard
+        is harmless there and keeps the code safe across both runtimes.
+        Junction targets are never deleted.
+    .PARAMETER Path
+        Directory to remove.  No-op if the path does not exist.
+    #>
+    param([string]$Path)
+    # Handle a broken (dangling) junction passed as root: Test-Path returns $false for broken
+    # junctions in PS5.1, so the normal guard misses them.  Detect and remove via Remove-Junction.
+    if (Test-IsReparsePoint $Path) { Remove-Junction $Path; return }
+    if (-not (Test-Path $Path -ErrorAction SilentlyContinue)) { return }
+    Remove-ReparsePoints $Path
+    Remove-Item $Path -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 function Remove-StaleVersionDirs {
     <#
     .SYNOPSIS
@@ -981,20 +1235,13 @@ function Remove-StaleVersionDirs {
         ForEach-Object {
             $dir  = $_.FullName
             $name = $_.Name
-            # Remove-Item -Recurse fails with "Access Denied" in PS5.1 on dirs that contain
-            # junction points (scoop persist junctions: data\, bin\, Codecs\, etc.).
-            # Fix: strip junction links first (Remove-ReparsePoints recurses into real
-            # sub-dirs only, never follows junctions), then the remaining real content
-            # is removable by Remove-Item -Recurse.
-            Remove-ReparsePoints $dir
-            Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-DirSafe $dir
             if (Test-Path $dir) {
                 # Still present: locked file (app running).  Rename out of the way so the
                 # new version dir is unambiguous.  Next run will retry the removal.
                 $tagged = "$dir-toBeDeleted"
                 if (Test-Path $tagged) {
-                    Remove-ReparsePoints $tagged
-                    Remove-Item $tagged -Recurse -Force -ErrorAction SilentlyContinue
+                    Remove-DirSafe $tagged
                 }
                 try {
                     Rename-Item $dir $tagged -ErrorAction Stop
@@ -1037,9 +1284,13 @@ function Get-AppDiff {
 }
 
 function Show-AppStatus {
-    param($Diff, $LocalVersions)
+    param($Diff, $LocalVersions, [switch]$SkipPending)
     Write-Host ""
-    Write-Host "Status:" -ForegroundColor Cyan
+    if (-not $SkipPending) {
+        foreach ($a in $Diff.ToInstall) { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
+        foreach ($a in $Diff.ToUpdate)  { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
+    }
+    foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair" -ForegroundColor Yellow }
     foreach ($a in $Diff.UpToDate) {
         if ($LocalVersions[$a.name] -eq '?') {
             Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)" -ForegroundColor Green
@@ -1047,17 +1298,7 @@ function Show-AppStatus {
             Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green
         }
     }
-    foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($LocalVersions[$a.name]) -> $($a.version)" -ForegroundColor Yellow }
-    foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  integrity fail" -ForegroundColor Magenta }
-    foreach ($a in $Diff.ToInstall) {
-        if ($LocalVersions[$a.name] -eq '?') {
-            Write-Host "  [+] $($a.name.PadRight(20)) (version unknown, files missing -- will re-install)" -ForegroundColor Cyan
-        } else {
-            Write-Host "  [+] $($a.name.PadRight(20)) (not installed)" -ForegroundColor Cyan
-        }
-    }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
-    Write-Host ""
 }
 
 function Install-Pack {
@@ -1073,11 +1314,28 @@ function Install-Pack {
     # after extraction, with a rename fallback for locked files.
 
     if (Test-Path $PackPath -PathType Container) {
-        # Pre-extracted pack (L: directory)  - top-level dirs are app names, same as zip root
+        # Pre-extracted pack directory - top-level dirs are app names, same as zip root
         Copy-Item "$PackPath\*" $appsDir -Recurse -Force
     } else {
-        Expand-Archive -Path $PackPath -DestinationPath $appsDir -Force
+        Expand-ZipWithProgress -ZipPath $PackPath -DestinationPath $appsDir
     }
+}
+
+# Shared manifest fetch used by both 'update' and 'status'.
+# Prints the fetch header, delegates to Get-ReleaseManifest (which prints the
+# source line), then confirms the loaded version.  Exits with code 1 on failure.
+function Get-CurrentManifest {
+    param([string]$ManifestSource, [string]$Version, [string]$LDrivePath, [bool]$NoInteraction)
+    Write-Host "Fetching manifest (LAN: $LDrivePath | remote: GitHub)..." -ForegroundColor Yellow
+    try {
+        $m = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version `
+                 -LDrivePath $LDrivePath -NoInteraction $NoInteraction
+    } catch {
+        Write-Host $_ -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Manifest: v$($m.version) ($($m.apps.Count) apps)" -ForegroundColor Green
+    return $m
 }
 
 # -- entry point ------------------------------------------------------------
@@ -1101,14 +1359,7 @@ if ($Command -eq "update") {
         }
     }
 
-    Write-Host "Resolving manifest..." -ForegroundColor Yellow
-    try {
-        $manifest = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version -NoInteraction ([bool]$NoInteraction)
-    } catch {
-        Write-Host $_ -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "Manifest: v$($manifest.version) ($($manifest.apps.Count) apps)" -ForegroundColor Green
+    $manifest = Get-CurrentManifest -ManifestSource $ManifestSource -Version $Version -LDrivePath $LDrivePath -NoInteraction ([bool]$NoInteraction)
 
     $localVersions = Get-LocalAppVersions -toolsetdir $toolsetdir
     $diff      = Get-AppDiff -Manifest $manifest -LocalVersions $localVersions -toolsetdir $toolsetdir -ForceReinstall ([bool]$ForceReinstall)
@@ -1116,13 +1367,14 @@ if ($Command -eq "update") {
     $toUpdate  = $diff.ToUpdate
     $toRepair  = $diff.ToRepair
     $removed   = $diff.Removed
-    Show-AppStatus -Diff $diff -LocalVersions $localVersions
+    Show-AppStatus -Diff $diff -LocalVersions $localVersions -SkipPending
 
     # Removed app handling
     if ($removed.Count -gt 0) {
         if ($Clean) {
             foreach ($name in $removed) {
-                Remove-Item "$toolsetdir\scoop\apps\$name" -Recurse -Force
+                $orphanDir = "$toolsetdir\scoop\apps\$name"
+                Remove-DirSafe $orphanDir
                 Write-Host "  Removed $name" -ForegroundColor DarkGray
             }
         } elseif ($NoInteraction) {
@@ -1131,7 +1383,8 @@ if ($Command -eq "update") {
             foreach ($name in $removed) {
                 $answer = Read-Host "Remove $name (no longer in manifest)? [Y/N]"
                 if ($answer -match '^[Yy]$') {
-                    Remove-Item "$toolsetdir\scoop\apps\$name" -Recurse -Force
+                    $orphanDir = "$toolsetdir\scoop\apps\$name"
+                    Remove-DirSafe $orphanDir
                     Write-Host "  Removed $name" -ForegroundColor DarkGray
                 }
             }
@@ -1144,26 +1397,36 @@ if ($Command -eq "update") {
         Write-Host "Everything is up to date." -ForegroundColor Green
     } else {
         if (-not $NoInteraction) {
-            $answer = Read-Host "Proceed with $($toDo.Count) download(s)? [Y/N]"
-            if ($answer -notmatch '^[Yy]$') { Write-Host "Cancelled."; exit 0 }
+            $answer = Read-Host "Proceed with $($toDo.Count) download(s)? [Y/n]"
+            if ($answer -match '^[Nn]') { Write-Host "Cancelled."; exit 0 }
         }
 
         # Use the manifest's own version for pack URLs when no explicit -Version was given.
         # This avoids a race where a new release is published between manifest fetch and pack download.
         $effectiveVersion = if ([string]::IsNullOrEmpty($Version)) { $manifest.version } else { $Version }
+        $archivesDir      = Join-Path $toolsetdir "archives"
 
         $failed = @()
         foreach ($app in $toDo) {
-            Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            Write-Host "  $($app.pack.PadRight(30))" -ForegroundColor Yellow -NoNewline
             try {
-                $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -NoInteraction $NoInteraction
-                Write-Host "" -ForegroundColor Yellow   # end the source-tag line
+                $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -LDrivePath $LDrivePath -ArchivesDir $archivesDir -NoInteraction $NoInteraction
                 Install-Pack -PackPath $packPath -toolsetdir $toolsetdir
+                $sw.Stop()
+                $elapsed = [math]::Round($sw.Elapsed.TotalSeconds, 1)
                 if ($packPath.StartsWith($env:TEMP)) { Remove-Item $packPath -Force -ErrorAction SilentlyContinue }
                 Remove-StaleVersionDirs -toolsetdir $toolsetdir -AppName $app.name -KeepVersion $app.version
-                Write-Host " done" -ForegroundColor Green
+                # Purge older cached zips for this app from archives (keep only the current version)
+                if (Test-Path $archivesDir) {
+                    Get-ChildItem $archivesDir -Filter "$($app.name)-*.zip" -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -ne $app.pack } |
+                        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+                }
+                Write-Host "  [+] $($app.name.PadRight(20)) $($app.version.PadRight(12)) done (${elapsed}s)" -ForegroundColor Green
             } catch {
-                Write-Host " FAILED" -ForegroundColor Red
+                Write-Host ""
+                Write-Host "  [+] $($app.name.PadRight(20)) $($app.version.PadRight(12)) FAILED" -ForegroundColor Red
                 Write-Warning "  $_"
                 $failed += $app.name
             }
@@ -1201,14 +1464,7 @@ if ($Command -eq "update") {
 } elseif ($Command -eq "status") {
 
     $toolsetdir = $Path
-    Write-Host "Resolving manifest..." -ForegroundColor Yellow
-    try {
-        $manifest = Get-ReleaseManifest -ManifestSource $ManifestSource -Version $Version -NoInteraction ([bool]$NoInteraction)
-    } catch {
-        Write-Host $_ -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "Manifest: v$($manifest.version) ($($manifest.apps.Count) apps)" -ForegroundColor Green
+    $manifest = Get-CurrentManifest -ManifestSource $ManifestSource -Version $Version -LDrivePath $LDrivePath -NoInteraction ([bool]$NoInteraction)
     $localVersions = Get-LocalAppVersions -toolsetdir $toolsetdir
     $diff = Get-AppDiff -Manifest $manifest -LocalVersions $localVersions -toolsetdir $toolsetdir
     Show-AppStatus -Diff $diff -LocalVersions $localVersions

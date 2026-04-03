@@ -3,6 +3,8 @@
 # Collects names of every failed assertion so the summary can list them all at the end —
 # avoids having to scroll through hundreds of lines of toolset output to find the one FAIL.
 $failedAssertions = [System.Collections.Generic.List[string]]::new()
+$script:pass = 0
+$script:fail = 0
 
 function Assert {
     param([string]$Name, $Cond, [string]$Detail = "")
@@ -59,6 +61,10 @@ function Remove-TestDir {
         Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue |
             Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
             ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
-        Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+        # Strip read-only attributes (Compress-Archive can leave them) before removal.
+        @(Get-Item $p -Force -ErrorAction SilentlyContinue) +
+            @(Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue) |
+            ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
+        try { Remove-Item $p -Recurse -Force -ErrorAction Stop } catch {}
     }
 }

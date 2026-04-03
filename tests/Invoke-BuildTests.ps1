@@ -6,14 +6,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 $repoRoot = "C:\toolset-repo"
-$pass = 0; $fail = 0
-$failedAssertions = [System.Collections.Generic.List[string]]::new()
-
-function Assert {
-    param([string]$Name, $Cond, [string]$Detail="")
-    if ($Cond) { $script:pass++ }
-    else       { Write-Host "  FAIL: $Name $Detail" -ForegroundColor Red; $script:fail++; $script:failedAssertions.Add($Name) }
-}
+. "$repoRoot\tests\Test-Helpers.ps1"
 
 # Test apps.json — jq is pre-installed in the base image (lightweight, reliable)
 $testAppsJson = "$repoRoot\apps-build-test.json"
@@ -163,6 +156,61 @@ Remove-Item $fakeLocalPackDir  -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $b7AppsJson        -Force -ErrorAction SilentlyContinue
 Remove-Item $b7PrivateJson     -Force -ErrorAction SilentlyContinue
 Remove-Item $missingPrivateJson -Force -ErrorAction SilentlyContinue
+
+Write-Host "[B8] integrityExcludePaths mismatch — forces rebuild; match — allows reuse" -ForegroundColor Cyan
+# integrityExcludePaths is written into the manifest at build time (from apps.json),
+# but the pack library (built from previous manifests) previously did NOT store it.
+# When the exclusions change between releases, the stored fileCount/totalSize no longer
+# match what toolset.ps1 counts on the client (which applies the new exclusions), so
+# every toolset run reports the pack as dirty and triggers a reinstall loop.
+# Fix: store integrityExcludePaths in the pack library; if the stored value differs
+# from apps.json, force a rebuild so counts are recomputed with the new exclusions.
+
+# Use jq version captured in B5 — stable across container runs.
+$jqVer8    = $jqApp.version
+$jqPack8   = $jqApp.pack
+$fakeUrl8  = "https://fake-cdn.example.com/releases/download/v98.2.0/$jqPack8"
+
+# [B8a] prev manifest has DIFFERENT integrityExcludePaths → should rebuild
+$b8aAppsJson = "C:\tmp\b8a-apps.json"
+@(@{ name = "jq"; integrityExcludePaths = @("apps/jq/current") }) |
+    ConvertTo-Json -Depth 3 | Set-Content $b8aAppsJson -Encoding UTF8
+$b8aPrev = "C:\tmp\b8a-prev.json"
+@{
+    version = "98.2.0"
+    apps    = @(@{ name = "jq"; version = $jqVer8; pack = $jqPack8; packUrl = $fakeUrl8
+                   integrityExcludePaths = @("apps/jq/current", "apps/jq/$jqVer8/jq.exe") })
+} | ConvertTo-Json -Depth 5 | Set-Content $b8aPrev -Encoding UTF8
+
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$env:RELEASE_VERSION = "test-99.0.8a"
+$out8a       = pwsh -File "$repoRoot\build.ps1" $b8aAppsJson -PreviousManifestPath $b8aPrev 2>&1
+$jqZip8a     = @(Get-ChildItem "$buildPacks\jq-*.zip" -EA SilentlyContinue).Count
+Assert "[B8a] exclusion mismatch: jq rebuilt (no reuse msg)" (-not ($out8a -match "Reusing jq"))
+Assert "[B8a] exclusion mismatch: jq zip produced"           ($jqZip8a -gt 0)
+
+# [B8b] prev manifest has SAME integrityExcludePaths → should reuse
+$b8bAppsJson = "C:\tmp\b8b-apps.json"
+@(@{ name = "jq"; integrityExcludePaths = @("apps/jq/current") }) |
+    ConvertTo-Json -Depth 3 | Set-Content $b8bAppsJson -Encoding UTF8
+$b8bPrev = "C:\tmp\b8b-prev.json"
+@{
+    version = "98.2.0"
+    apps    = @(@{ name = "jq"; version = $jqVer8; pack = $jqPack8; packUrl = $fakeUrl8
+                   integrityExcludePaths = @("apps/jq/current") })
+} | ConvertTo-Json -Depth 5 | Set-Content $b8bPrev -Encoding UTF8
+
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$env:RELEASE_VERSION = "test-99.0.8b"
+$out8b   = pwsh -File "$repoRoot\build.ps1" $b8bAppsJson -PreviousManifestPath $b8bPrev 2>&1
+$jqZip8b = @(Get-ChildItem "$buildPacks\jq-*.zip" -EA SilentlyContinue).Count
+Assert "[B8b] exclusion match: reuse message shown" ($out8b -match "Reusing jq")
+Assert "[B8b] exclusion match: no jq zip produced"  ($jqZip8b -eq 0)
+
+Remove-Item $b8aAppsJson -Force -ErrorAction SilentlyContinue
+Remove-Item $b8aPrev     -Force -ErrorAction SilentlyContinue
+Remove-Item $b8bAppsJson -Force -ErrorAction SilentlyContinue
+Remove-Item $b8bPrev     -Force -ErrorAction SilentlyContinue
 
 Write-Host "[B6] toolset.ps1 / setup.ps1 — ASCII-only (PS 5.1 compatible)" -ForegroundColor Cyan
 # PowerShell 5.1 reads UTF-8 files without BOM as ANSI (Windows-1252).

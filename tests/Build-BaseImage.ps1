@@ -38,21 +38,8 @@ $image     = "ghcr.io/etml-inf/standard-toolset/build-base:$Tag"
 $testImage = "ghcr.io/etml-inf/standard-toolset/test-base:$Tag"
 $repoRoot  = Split-Path $PSScriptRoot -Parent
 
-# CI: mode already guaranteed — use default silently.
-# Desktop: prefer 'desktop-windows'; warn if absent so the developer knows to switch.
-$availableContexts = docker context ls --format "{{.Name}}" 2>$null
-$context = if ($env:CI) {
-    $null
-} elseif ($availableContexts -contains "desktop-windows") {
-    "desktop-windows"
-} else {
-    Write-Warning "'desktop-windows' context not found — using current default context."
-    Write-Warning "If the build fails, make sure Docker Desktop is in Windows containers mode."
-    $null
-}
-$dockerArgs = if ($context) { @("--context", $context) } else { @() }
-
-Write-Host "Docker context : $(if ($context) { $context } else { '(default)' })" -ForegroundColor Cyan
+. (Join-Path $PSScriptRoot "Test-DockerHelpers.ps1")
+$dockerArgs = Get-DockerArgs
 Write-Host "Image          : $image" -ForegroundColor Cyan
 Write-Host ""
 

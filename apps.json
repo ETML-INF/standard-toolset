@@ -40,7 +40,8 @@
   {
     "name":"nodejs-lts",
     "//comment":"Version:22.14.0 removed... just use lts",
-    "tags":"web,project"
+    "tags":"web,project",
+    "patchBuildPaths":true
   },
   {
     "//comment":"this is github desktop, not git",

@@ -64,7 +64,7 @@ foreach ($app in $Apps) {
     @{ version = $version } | ConvertTo-Json | Set-Content (Join-Path $curDir "manifest.json") -Encoding UTF8
 
     # ExcludePaths mirrors integrityExcludePaths in the manifest so counts are consistent.
-    $excludePaths = if ($app.ContainsKey('IntegrityExcludePaths')) { @($app.IntegrityExcludePaths) } else { @() }
+    $excludePaths = [string[]]@(if ($app.ContainsKey('IntegrityExcludePaths')) { $app.IntegrityExcludePaths })
 
     # Count source files before compression (without following junctions or excluded paths)
     # so the recorded fileCount/totalSize match what Test-AppIntegrity measures.

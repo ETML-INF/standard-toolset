@@ -46,7 +46,13 @@ if (-not $psaModule) {
     Write-Host "  PSScriptAnalyzer not installed -- installing (CurrentUser)..." -ForegroundColor Yellow
     Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
 }
-$settings = Join-Path $RepoRoot "PSScriptAnalyzerSettings.psd1"
+$settings  = Join-Path $RepoRoot "PSScriptAnalyzerSettings.psd1"
+$psFiles   = @(Get-ChildItem $RepoRoot -Filter "*.ps1" -Recurse -ErrorAction Stop |
+               Where-Object { $_.FullName -notmatch '\\build\\' })
+Write-Host "  Analyzing $($psFiles.Count) script(s):" -ForegroundColor DarkGray
+foreach ($f in $psFiles | Sort-Object FullName) {
+    Write-Host "    $($f.FullName.Substring($RepoRoot.Length + 1))" -ForegroundColor DarkGray
+}
 $lintResults = @(Invoke-ScriptAnalyzer -Path $RepoRoot -Recurse -Settings $settings `
     -Severity Error, Warning -ErrorAction Stop)
 if ($lintResults.Count -gt 0) {
