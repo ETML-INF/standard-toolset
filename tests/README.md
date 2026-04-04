@@ -99,10 +99,9 @@ pwsh tests/Run-BuildTests.ps1
 On every push/PR (`ci.yml`), two jobs run:
 
 1. **`test`** — runs the `validate-and-test` composite action:
-   - Validates `apps.json` (JSON schema check)
-   - Runs `Test-UpdateMode.ps1` (update-mode tests, no container)
+   - Runs `Test-StaticChecks.ps1` (lint, ASCII, apps.json schema)
    - Switches Docker to Windows containers mode
-   - Runs `Run-ToolsetTests.ps1` (toolset unit tests in nanoserver container)
+   - Runs `Test-All.ps1 -SkipStaticChecks -SkipBuildTests` (toolset unit tests in nanoserver container)
 
 2. **`build-tests`** (runs only if `test` passes) — pulls the base image from GHCR and runs `Run-BuildTests.ps1`.
 

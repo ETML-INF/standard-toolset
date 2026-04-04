@@ -23,11 +23,15 @@
 
 .PARAMETER SkipStaticChecks
     Skip the initial static-checks step (PSScriptAnalyzer, ASCII, apps.json).
+
+.PARAMETER SkipBuildTests
+    Skip Run-BuildTests.ps1. Use in CI where build tests run in a separate job.
 #>
 param(
     [string]$BaseImage       = "",
     [switch]$NoCleanup,
-    [switch]$SkipStaticChecks
+    [switch]$SkipStaticChecks,
+    [switch]$SkipBuildTests
 )
 
 Set-StrictMode -Version Latest
@@ -61,6 +65,7 @@ if (-not $SkipStaticChecks) {
 
 # ── Step 2+: auto-discover Run-*.ps1 ────────────────────────────────────
 $runners = Get-ChildItem -Path $testsDir -Filter "Run-*.ps1" | Sort-Object Name
+if ($SkipBuildTests) { $runners = $runners | Where-Object { $_.Name -ne "Run-BuildTests.ps1" } }
 foreach ($runner in $runners) {
     $label = $runner.BaseName
 

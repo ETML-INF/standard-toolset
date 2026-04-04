@@ -1,8 +1,8 @@
 name: Validate and Test
 description: >
-  Validates apps.json, runs update-mode tests, switches Docker to Windows containers,
-  and runs the toolset unit test suite. All tests in one place so container
-  issues are caught by the same job that validates config.
+  Validates apps.json, switches Docker to Windows containers,
+  and runs the toolset unit test suite via Test-All.ps1 (same entrypoint as dev).
+  Build tests run in a separate CI job and are skipped here.
 
 runs:
   using: composite
@@ -10,10 +10,6 @@ runs:
     - name: Static checks (lint, ASCII, apps.json)
       shell: pwsh
       run: pwsh tests/Test-StaticChecks.ps1
-
-    - name: Run update mode tests
-      shell: pwsh
-      run: pwsh tests/Test-UpdateMode.ps1
 
     - uses: ./.github/actions/switch-docker-windows
 
@@ -37,6 +33,6 @@ runs:
 
     # nanoserver:ltsc2022 is pre-cached on windows-2022 runners (zero pull time).
     # Runner OS build = 20348, container build = 20348 → process isolation guaranteed.
-    - name: Run toolset unit tests
+    - name: Run toolset tests
       shell: pwsh
-      run: pwsh tests/Run-ToolsetTests.ps1 -BaseImage $env:TEST_BASE_IMAGE
+      run: pwsh tests/Test-All.ps1 -SkipStaticChecks -SkipBuildTests -BaseImage $env:TEST_BASE_IMAGE

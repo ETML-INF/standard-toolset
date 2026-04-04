@@ -1,4 +1,4 @@
-# Shared test helpers — dot-source this file from both Invoke-ToolsetTests.ps1 and Test-UpdateMode.ps1
+# Shared test helpers — dot-source this file from Invoke-ToolsetTests.ps1 and similar test scripts
 
 # Collects names of every failed assertion so the summary can list them all at the end —
 # avoids having to scroll through hundreds of lines of toolset output to find the one FAIL.
