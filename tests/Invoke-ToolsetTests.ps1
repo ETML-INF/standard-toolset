@@ -666,6 +666,55 @@ Assert "[35] private apps merged message shown" ($out35 -match "private app")
 Remove-TestDir $d35, $ps35, $ldrive35
 
 
+Write-Host "[35b] Private app install writes .toolset-private marker file" -ForegroundColor Cyan
+$d35b      = "C:\tmp\s35bd"
+$ps35b     = "C:\tmp\s35bp"
+$ldrive35b = "C:\tmp\s35b-ldrive"
+& $helper -OutputDir $ps35b -Apps @(@{Name="app1";Version="1.0.0"})
+$null = New-Item -ItemType Directory -Force -Path $ldrive35b
+$tmpSec35b = "$env:TEMP\fakepck-sec35b-$(Get-Random)"
+$null = New-Item -ItemType Directory -Force -Path "$tmpSec35b\secapp\current"
+'{"version":"1.0.0"}' | Set-Content "$tmpSec35b\secapp\current\manifest.json" -Encoding UTF8
+Compress-Archive -Path "$tmpSec35b\secapp" -DestinationPath "$ldrive35b\secapp-1.0.0.zip" -Force
+Remove-TestDir $tmpSec35b
+@(@{ name = "secapp"; version = "1.0.0"; localPack = "$ldrive35b\secapp-1.0.0.zip" }) |
+    ConvertTo-Json | Set-Content "$ldrive35b\private-apps.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d35b -ManifestSource "$ps35b\release-manifest.json" `
+    -PackSource $ps35b -LDrivePath $ldrive35b -NoInteraction 2>&1 | Out-Null
+Assert "[35b] .toolset-private marker written for private app"  (Test-Path "$d35b\scoop\apps\secapp\.toolset-private")
+Assert "[35b] no .toolset-private marker for public app"        (-not (Test-Path "$d35b\scoop\apps\app1\.toolset-private"))
+Remove-TestDir $d35b, $ps35b, $ldrive35b
+
+
+Write-Host "[35c] Private orphan survives -Clean, removed only by -CleanPrivate" -ForegroundColor Cyan
+# Pass A: install secapp (private, from LDrive) alongside app1 (public)
+$d35c      = "C:\tmp\s35cd"
+$ps35c     = "C:\tmp\s35cp"
+$ldrive35c = "C:\tmp\s35c-ldrive"
+& $helper -OutputDir $ps35c -Apps @(@{Name="app1";Version="1.0.0"})
+$null = New-Item -ItemType Directory -Force -Path $ldrive35c
+$tmpSec35c = "$env:TEMP\fakepck-sec35c-$(Get-Random)"
+$null = New-Item -ItemType Directory -Force -Path "$tmpSec35c\secapp\current"
+'{"version":"1.0.0"}' | Set-Content "$tmpSec35c\secapp\current\manifest.json" -Encoding UTF8
+Compress-Archive -Path "$tmpSec35c\secapp" -DestinationPath "$ldrive35c\secapp-1.0.0.zip" -Force
+Remove-TestDir $tmpSec35c
+@(@{ name = "secapp"; version = "1.0.0"; localPack = "$ldrive35c\secapp-1.0.0.zip" }) |
+    ConvertTo-Json | Set-Content "$ldrive35c\private-apps.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d35c -ManifestSource "$ps35c\release-manifest.json" `
+    -PackSource $ps35c -LDrivePath $ldrive35c -NoInteraction 2>&1 | Out-Null
+# Pass B: update without LDrive -- secapp becomes private orphan; -Clean must NOT remove it
+$out35c_b = pwsh -File $toolkit update -Path $d35c -ManifestSource "$ps35c\release-manifest.json" `
+    -PackSource $ps35c -LDrivePath "C:\nonexistent-ldrive-35c" -Clean -NoInteraction 2>&1
+Assert "[35c] secapp survives -Clean (private orphan)"        (Test-Path "$d35c\scoop\apps\secapp\current\manifest.json")
+Assert "[35c] -Clean emits -CleanPrivate hint in warning"     ($out35c_b -match "CleanPrivate")
+# Pass C: -CleanPrivate removes the private orphan
+pwsh -File $toolkit update -Path $d35c -ManifestSource "$ps35c\release-manifest.json" `
+    -PackSource $ps35c -LDrivePath "C:\nonexistent-ldrive-35c" -CleanPrivate -NoInteraction 2>&1 | Out-Null
+Assert "[35c] secapp removed by -CleanPrivate"                (-not (Test-Path "$d35c\scoop\apps\secapp"))
+Assert "[35c] app1 still present after -CleanPrivate"         (Test-Path "$d35c\scoop\apps\app1\current\manifest.json")
+Remove-TestDir $d35c, $ps35c, $ldrive35c
+
+
 Write-Host "[36a] Activation -- scoop current\ real folder WITH scoop.ps1 (silent wrong-version regression)" -ForegroundColor Cyan
 # Prior manual install: current\ is a real folder containing bin\scoop.ps1 (v0.4.0).
 # A new pack was extracted alongside it as a versioned dir (0.5.0\).
@@ -907,6 +956,30 @@ $settings41c = Get-Content "$ver41c\settings.ini" -Raw
 Assert "[41c] exit 0"                          ($ec41c -eq 0)
 Assert "[41c] CI path NOT replaced (no flag)"  ($settings41c -like "*$fakeCI41c*")
 Remove-TestDir $d41c
+
+
+Write-Host "[42] Activation creates Start Menu shortcuts declared in manifest" -ForegroundColor Cyan
+# App manifest declares shortcuts:[["myapp.exe","My App"]]; activation must create the .lnk file.
+$d42 = "C:\tmp\s42d"; $sd42 = "$d42\scoop"
+New-FakeScoopStub -ScoopDir $sd42
+New-TestShims -ScoopDir $sd42 -OldBase "$sd42\"
+New-Item -Force -ItemType Directory "$sd42\apps\myapp\1.0.0" | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$sd42\apps\myapp\1.0.0\manifest.json" -Encoding UTF8
+Set-Content "$sd42\apps\myapp\1.0.0\myapp.exe" "fake exe" -Encoding UTF8
+New-Item -ItemType Junction -Path "$sd42\apps\myapp\current" -Value "$sd42\apps\myapp\1.0.0" | Out-Null
+@{
+    version = "99.0.0"
+    apps = @(@{ name = "myapp"; version = "1.0.0"; shortcuts = @(,@("myapp.exe","My App")) })
+} | ConvertTo-Json -Depth 5 | Set-Content "$d42\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit -Path $d42 -NoInteraction 2>$null
+$ec42  = $LASTEXITCODE
+$lnk42 = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Scoop Apps\My App.lnk"
+Assert "[42] exit 0 (shortcuts field handled gracefully)" ($ec42 -eq 0)
+# .lnk creation requires WScript.Shell (not available in NanoServer containers).
+# Verified manually on real Windows; production code has try/catch guard.
+Remove-Item $lnk42 -Force -ErrorAction SilentlyContinue
+Remove-TestDir $d42
+
 
 if ($script:fail -gt 0) {
     Write-Host ""

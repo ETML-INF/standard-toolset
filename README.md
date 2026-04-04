@@ -200,6 +200,7 @@ Un PR de release est automatiquement créé et mergé → déclenche `release.ym
    | `paths2DropToEnableMultiUser` | — | string[] | Chemins relatifs (entrées `persist` scoop) à supprimer lors de l'activation pour forcer l'utilisation de `%APPDATA%` au lieu du dossier partagé. Omettre si le partage est souhaité (ex. cmder — aliases communs) |
    | `integrityExcludePaths` | — | string[] | Chemins relatifs exclus du contrôle d'intégrité (ex. sous-dossiers accumulant des fichiers utilisateur après installation) |
    | `patchBuildPaths` | — | boolean | `true` pour remplacer le chemin persist du build CI par le chemin réel lors de l'activation (nécessaire si l'app embarque des chemins absolus dans ses fichiers de config) |
+   | `shortcuts` | — | [string, string][] | Raccourcis à créer dans le menu Démarrer lors de l'activation. Chaque entrée est une paire `[cheminExe, nomAffiche]` où `cheminExe` est relatif à `current\` (ex. `[["MyApp.exe", "My App"]]`) |
    | `//comment` | — | string | Commentaire ignoré par le toolset |
 
    Exemple minimal : `{ "name": "myapp", "bucket": "extras" }`

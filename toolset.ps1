@@ -3,6 +3,7 @@ param(
     [string]$Path = "C:\inf-toolset",
     [switch]$NoInteraction,
     [switch]$Clean,
+    [switch]$CleanPrivate,
     [switch]$ForceReinstall,
     [string]$Version = "",
     [string]$ManifestSource = "",
@@ -282,6 +283,37 @@ function Invoke-Activate {
         Write-Warning "scoop.ps1 not found at $scoopPs1 - skipping junction reset (will complete on next activation)"
     }
 
+    # App shortcuts declared in manifest (shortcuts field: array of [exePath, displayName] pairs)
+    # Mirrors scoop's own shortcuts field; exePath is relative to current\.
+    # Shortcuts are recreated on every activation (idempotent).
+    # WScript.Shell is not available in all environments (e.g. NanoServer containers);
+    # each shortcut creation is individually guarded so activation never fails.
+    if ($mf) {
+        $startMenuScoop = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Scoop Apps"
+        foreach ($appEntry in $mf.apps) {
+            if (-not $appEntry.PSObject.Properties['shortcuts']) { continue }
+            foreach ($pair in $appEntry.shortcuts) {
+                $exeRel      = $pair[0]
+                $displayName = $pair[1]
+                $exeFull     = "$scoopdir\apps\$($appEntry.name)\current\$exeRel"
+                $lnkPath     = "$startMenuScoop\$displayName.lnk"
+                if (-not (Test-Path $exeFull -ErrorAction SilentlyContinue)) {
+                    Write-Warning "Shortcut target not found, skipping: $exeFull"
+                    continue
+                }
+                try {
+                    $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnkPath)
+                    New-Item -ItemType Directory -Force -Path $startMenuScoop | Out-Null
+                    $sc.TargetPath = $exeFull
+                    $sc.Save()
+                    Write-Host "  Shortcut: $displayName" -ForegroundColor DarkGray
+                } catch {
+                    Write-Warning "Could not create shortcut '$displayName': $_"
+                }
+            }
+        }
+    }
+
     # Drop paths2DropToEnableMultiUser from each app's current\ dir so apps fall back to
     # per-user %APPDATA% instead of the shared portable-mode location.
     # Scoop's persist creates junctions: app\current\<path> -> scoop\persist\<app>\<path>.
@@ -422,12 +454,16 @@ function Invoke-Activate {
     if (Test-Path $scoopShortcutsFolder) {
         $shortcutPath = [Environment]::GetFolderPath("Desktop") + "\$(Split-Path $toolsetdir -Leaf).lnk"
         if (Test-Path $shortcutPath) { Remove-Item $shortcutPath -Force }
-        $shell = New-Object -ComObject WScript.Shell
-        $sc = $shell.CreateShortcut($shortcutPath)
-        $sc.TargetPath = $scoopShortcutsFolder
-        $sc.IconLocation = "C:\Windows\System32\shell32.dll,12"
-        $sc.Save()
-        Write-Output "Shortcut created: $shortcutPath"
+        try {
+            $shell = New-Object -ComObject WScript.Shell
+            $sc = $shell.CreateShortcut($shortcutPath)
+            $sc.TargetPath = $scoopShortcutsFolder
+            $sc.IconLocation = "C:\Windows\System32\shell32.dll,12"
+            $sc.Save()
+            Write-Output "Shortcut created: $shortcutPath"
+        } catch {
+            Write-Warning "Could not create desktop shortcut: $_"
+        }
     }
 
     # Grant all users full control  - best effort (requires elevation; silent if unavailable)
@@ -1110,9 +1146,7 @@ function Test-AppIntegrity {
     $excludePaths = if ($App.PSObject.Properties['integrityExcludePaths']) {
         @($App.integrityExcludePaths)
     } else { @() }
-    Write-Host "  Checking integrity $($App.name)..." -ForegroundColor DarkGray -NoNewline
     $files = @(Get-FilesNoJunction $versionDir $excludePaths)
-    Write-Host " $($files.Count) files" -ForegroundColor DarkGray
     if ($files.Count -ne [int]$App.fileCount) { return $false }
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     return $size -eq [long]$App.totalSize
@@ -1258,12 +1292,42 @@ function Remove-StaleVersionDirs {
 function Get-AppDiff {
     param($Manifest, $LocalVersions, [string]$toolsetdir, [bool]$ForceReinstall = $false)
     $names = $Manifest.apps | ForEach-Object { $_.name }
+
+    # Pre-compute integrity once per app to avoid checking each app twice.
+    # Integrity is needed only when the installed version matches the manifest (repair vs
+    # up-to-date tiebreaker) or is unknown '?' (install vs up-to-date tiebreaker).
+    $integrityCache = @{}
+    $appsToCheck = @($Manifest.apps | Where-Object {
+        -not $ForceReinstall -and
+        $LocalVersions.ContainsKey($_.name) -and
+        ($LocalVersions[$_.name] -eq $_.version -or $LocalVersions[$_.name] -eq '?')
+    })
+    if ($appsToCheck.Count -gt 0) {
+        $isTerminal = -not [Console]::IsOutputRedirected
+        if ($isTerminal) {
+            [Console]::Write("  Checking integrity...")
+        } else {
+            Write-Host "  Checking integrity ($($appsToCheck.Count) apps)..." -ForegroundColor DarkGray -NoNewline
+        }
+        foreach ($app in $appsToCheck) {
+            if ($isTerminal) {
+                [Console]::Write("`r  $($app.name)...                              ")
+            }
+            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir
+        }
+        if ($isTerminal) {
+            [Console]::Write("`r" + (' ' * 55) + "`r")
+        } else {
+            Write-Host ' done' -ForegroundColor DarkGray
+        }
+    }
+
     return [pscustomobject]@{
         # "?" means version unknown but directory exists: use integrity as the tiebreaker.
         # If files match the target version -> treat as UpToDate. Otherwise fresh install.
         ToInstall = @($Manifest.apps | Where-Object {
             (-not $LocalVersions.ContainsKey($_.name)) -or
-            ($LocalVersions[$_.name] -eq '?' -and -not (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir))
+            ($LocalVersions[$_.name] -eq '?' -and -not $integrityCache[$_.name])
         })
         ToUpdate  = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and
@@ -1272,11 +1336,11 @@ function Get-AppDiff {
         })
         ToRepair  = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
-            ($ForceReinstall -or -not (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir))
+            ($ForceReinstall -or -not $integrityCache[$_.name])
         })
         UpToDate  = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and -not $ForceReinstall -and
-            (Test-AppIntegrity -App $_ -toolsetdir $toolsetdir) -and
+            $integrityCache[$_.name] -and
             ($LocalVersions[$_.name] -eq $_.version -or $LocalVersions[$_.name] -eq '?')
         })
         Removed   = @($LocalVersions.Keys | Where-Object { $_ -notin $names })
@@ -1369,25 +1433,39 @@ if ($Command -eq "update") {
     $removed   = $diff.Removed
     Show-AppStatus -Diff $diff -LocalVersions $localVersions -SkipPending
 
-    # Removed app handling
-    if ($removed.Count -gt 0) {
+    # Removed app handling - split public orphans from private apps (marker: .toolset-private).
+    # Private apps are protected from -Clean: only -CleanPrivate removes them, so a temporarily
+    # unreachable L:\ does not cause accidental deletion.
+    $removedPublic  = @($removed | Where-Object { -not (Test-Path "$toolsetdir\scoop\apps\$_\.toolset-private") })
+    $removedPrivate = @($removed | Where-Object {       Test-Path "$toolsetdir\scoop\apps\$_\.toolset-private"  })
+
+    if ($removedPublic.Count -gt 0) {
         if ($Clean) {
-            foreach ($name in $removed) {
-                $orphanDir = "$toolsetdir\scoop\apps\$name"
-                Remove-DirSafe $orphanDir
+            foreach ($name in $removedPublic) {
+                Remove-DirSafe "$toolsetdir\scoop\apps\$name"
                 Write-Host "  Removed $name" -ForegroundColor DarkGray
             }
         } elseif ($NoInteraction) {
-            Write-Warning "Orphaned apps detected: $($removed -join ', '). Use -Clean to remove them."
+            Write-Warning "Orphaned apps detected: $($removedPublic -join ', '). Use -Clean to remove them."
         } else {
-            foreach ($name in $removed) {
+            foreach ($name in $removedPublic) {
                 $answer = Read-Host "Remove $name (no longer in manifest)? [Y/N]"
                 if ($answer -match '^[Yy]$') {
-                    $orphanDir = "$toolsetdir\scoop\apps\$name"
-                    Remove-DirSafe $orphanDir
+                    Remove-DirSafe "$toolsetdir\scoop\apps\$name"
                     Write-Host "  Removed $name" -ForegroundColor DarkGray
                 }
             }
+        }
+    }
+
+    if ($removedPrivate.Count -gt 0) {
+        if ($CleanPrivate) {
+            foreach ($name in $removedPrivate) {
+                Remove-DirSafe "$toolsetdir\scoop\apps\$name"
+                Write-Host "  Removed private app $name" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Warning "Private apps not in manifest (L:\ unreachable?): $($removedPrivate -join ', '). Use -CleanPrivate to remove."
         }
     }
 
@@ -1413,6 +1491,13 @@ if ($Command -eq "update") {
             try {
                 $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -LDrivePath $LDrivePath -ArchivesDir $archivesDir -NoInteraction $NoInteraction
                 Install-Pack -PackPath $packPath -toolsetdir $toolsetdir
+                # Mark private apps (local-path packUrl) so they are protected from -Clean removal
+                # when L:\ is temporarily unreachable.  The marker survives until the app dir is removed.
+                $isPrivatePack = $app.PSObject.Properties['packUrl'] -and $app.packUrl -and
+                                 ($app.packUrl -match '^[A-Za-z]:\\' -or $app.packUrl -match '^\\\\')
+                if ($isPrivatePack) {
+                    New-Item -ItemType File -Force -Path "$toolsetdir\scoop\apps\$($app.name)\.toolset-private" | Out-Null
+                }
                 $sw.Stop()
                 $elapsed = [math]::Round($sw.Elapsed.TotalSeconds, 1)
                 if ($packPath.StartsWith($env:TEMP)) { Remove-Item $packPath -Force -ErrorAction SilentlyContinue }
