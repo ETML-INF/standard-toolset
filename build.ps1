@@ -612,9 +612,9 @@ try {
     $manifest = [ordered]@{
         version             = $releaseVersion
         built               = (Get-Date -Format "o")
-        # Absolute path of scoop\persist at build time — used by toolset.ps1 to fix
-        # embedded paths in nodejs-lts npm modules without hardcoding the CI workspace.
-        buildScoopPersistDir = "$buildScoopDir\persist"
+        # Absolute scoop base path at build time -- toolset.ps1 replaces this with the
+        # client scoop dir to fix any CI-runner paths embedded in installed app files.
+        buildScoopDir        = $buildScoopDir
         apps                = $manifestApps
     }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content "$packsDir\release-manifest.json" -Encoding UTF8

@@ -894,68 +894,69 @@ Assert "[40b] manifest.json accessible via current\"          (Test-Path "$junc4
 Assert "[40b] versioned dir app1\1.0.0\ exists"               (Test-Path "$d40b\scoop\apps\app1\1.0.0")
 Remove-TestDir $p40b, $d40b
 
-Write-Host "[41a] patchBuildPaths — nodejs-lts always patched (no flag in manifest, backward compat)" -ForegroundColor Cyan
-# nodejs-lts is unconditionally patched even on old manifests that predate the patchBuildPaths field.
-$d41a = "C:\tmp\s41ad"; $sd41a = "$d41a\scoop"; $fakeCI41 = "C:\fake-ci-persist"
-New-FakeScoopStub -ScoopDir $sd41a
-New-TestShims -ScoopDir $sd41a -OldBase "$sd41a\"
-$ver41a = "$sd41a\apps\nodejs-lts\20.0.0"
-New-Item -Force -ItemType Directory $ver41a | Out-Null
-@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$ver41a\manifest.json" -Encoding UTF8
-# .npmrc embedding the fake CI persist path — exactly what gets baked in during CI build
-Set-Content "$ver41a\.npmrc" "prefix=$fakeCI41\nodejs-lts\npm-prefix`ncache=$fakeCI41\nodejs-lts\npm-cache" -Encoding UTF8
-# No patchBuildPaths on the entry — backward compat scenario
+Write-Host "[41a] patchBuildPaths — nodejs-lts always patched at install time (no flag needed)" -ForegroundColor Cyan
+# Patching now happens immediately after Install-Pack; activation no longer does it.
+# Pack contains .npmrc with CI scoop base path embedded; update must replace it before activation.
+$d41a = "C:\tmp\s41ad"; $ps41a = "C:\tmp\s41ap"; $fakeCIScoop41 = "C:\fake-ci-scoop"
+$tmp41a = "$env:TEMP\s41a-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp41a\nodejs-lts\current" | Out-Null
+@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$tmp41a\nodejs-lts\current\manifest.json" -Encoding UTF8
+Set-Content "$tmp41a\nodejs-lts\current\.npmrc" "prefix=$fakeCIScoop41\persist\nodejs-lts" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps41a
+Compress-Archive -Path "$tmp41a\nodejs-lts" -DestinationPath "$ps41a\nodejs-lts-20.0.0.zip" -Force
+Remove-TestDir $tmp41a
 @{
-    version = "99.0.0"; buildScoopPersistDir = $fakeCI41
-    apps = @(@{ name = "nodejs-lts"; version = "20.0.0" })
-} | ConvertTo-Json -Depth 5 | Set-Content "$d41a\release-manifest.json" -Encoding UTF8
-pwsh -File $toolkit -Path $d41a -NoInteraction 2>$null
+    version = "99.0.0"; buildScoopDir = $fakeCIScoop41
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip" })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps41a\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d41a -ManifestSource "$ps41a\release-manifest.json" -PackSource $ps41a -NoInteraction 2>$null
 $ec41a    = $LASTEXITCODE
-$npmrc41a = Get-Content "$ver41a\.npmrc" -Raw
+$npmrc41a = Get-Content "$d41a\scoop\apps\nodejs-lts\current\.npmrc" -Raw -ErrorAction SilentlyContinue
 Assert "[41a] exit 0"                          ($ec41a -eq 0)
-Assert "[41a] CI path replaced in .npmrc"      ($npmrc41a -notlike "*$fakeCI41*")
-Assert "[41a] real persist path in .npmrc"     ($npmrc41a -like "*$sd41a\persist\nodejs-lts*")
-Remove-TestDir $d41a
+Assert "[41a] CI scoop path replaced in .npmrc" ($npmrc41a -notlike "*$fakeCIScoop41*")
+Assert "[41a] real scoop path in .npmrc"        ($npmrc41a -like "*\scoop\persist\nodejs-lts*")
+Remove-TestDir $d41a, $ps41a
 
-Write-Host "[41b] patchBuildPaths — app with patchBuildPaths:true gets patched" -ForegroundColor Cyan
-$d41b = "C:\tmp\s41bd"; $sd41b = "$d41b\scoop"; $fakeCI41b = "C:\fake-ci-persist"
-New-FakeScoopStub -ScoopDir $sd41b
-New-TestShims -ScoopDir $sd41b -OldBase "$sd41b\"
-$ver41b = "$sd41b\apps\myapp\1.0.0"
-New-Item -Force -ItemType Directory $ver41b | Out-Null
-@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$ver41b\manifest.json" -Encoding UTF8
-Set-Content "$ver41b\config.ini" "path=$fakeCI41b\myapp\config" -Encoding UTF8
+Write-Host "[41b] patchBuildPaths — app with patchBuildPaths:true patched at install time" -ForegroundColor Cyan
+$d41b = "C:\tmp\s41bd"; $ps41b = "C:\tmp\s41bp"; $fakeCIScoop41b = "C:\fake-ci-scoop-b"
+$tmp41b = "$env:TEMP\s41b-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp41b\myapp\current" | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$tmp41b\myapp\current\manifest.json" -Encoding UTF8
+Set-Content "$tmp41b\myapp\current\config.ini" "path=$fakeCIScoop41b\persist\myapp\config" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps41b
+Compress-Archive -Path "$tmp41b\myapp" -DestinationPath "$ps41b\myapp-1.0.0.zip" -Force
+Remove-TestDir $tmp41b
 @{
-    version = "99.0.0"; buildScoopPersistDir = $fakeCI41b
-    apps = @(@{ name = "myapp"; version = "1.0.0"; patchBuildPaths = $true })
-} | ConvertTo-Json -Depth 5 | Set-Content "$d41b\release-manifest.json" -Encoding UTF8
-pwsh -File $toolkit -Path $d41b -NoInteraction 2>$null
+    version = "99.0.0"; buildScoopDir = $fakeCIScoop41b
+    apps = @(@{ name = "myapp"; version = "1.0.0"; pack = "myapp-1.0.0.zip"; patchBuildPaths = $true })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps41b\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d41b -ManifestSource "$ps41b\release-manifest.json" -PackSource $ps41b -NoInteraction 2>$null
 $ec41b  = $LASTEXITCODE
-$cfg41b = Get-Content "$ver41b\config.ini" -Raw
-Assert "[41b] exit 0"                          ($ec41b -eq 0)
-Assert "[41b] CI path replaced in config.ini"  ($cfg41b -notlike "*$fakeCI41b*")
-Assert "[41b] real persist path in config.ini" ($cfg41b -like "*$sd41b\persist\myapp*")
-Remove-TestDir $d41b
+$cfg41b = Get-Content "$d41b\scoop\apps\myapp\current\config.ini" -Raw -ErrorAction SilentlyContinue
+Assert "[41b] exit 0"                           ($ec41b -eq 0)
+Assert "[41b] CI scoop path replaced in config" ($cfg41b -notlike "*$fakeCIScoop41b*")
+Assert "[41b] real scoop path in config"        ($cfg41b -like "*\scoop\persist\myapp*")
+Remove-TestDir $d41b, $ps41b
 
 Write-Host "[41c] patchBuildPaths — app WITHOUT flag is NOT patched" -ForegroundColor Cyan
-$d41c = "C:\tmp\s41cd"; $sd41c = "$d41c\scoop"; $fakeCI41c = "C:\fake-ci-persist"
-New-FakeScoopStub -ScoopDir $sd41c
-New-TestShims -ScoopDir $sd41c -OldBase "$sd41c\"
-$ver41c = "$sd41c\apps\otherapp\1.0.0"
-New-Item -Force -ItemType Directory $ver41c | Out-Null
-@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$ver41c\manifest.json" -Encoding UTF8
-Set-Content "$ver41c\settings.ini" "path=$fakeCI41c\otherapp\data" -Encoding UTF8
-# No patchBuildPaths field on this app — should not be patched
+$d41c = "C:\tmp\s41cd"; $ps41c = "C:\tmp\s41cp"; $fakeCIScoop41c = "C:\fake-ci-scoop-c"
+$tmp41c = "$env:TEMP\s41c-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp41c\otherapp\current" | Out-Null
+@{ version = "1.0.0" } | ConvertTo-Json | Set-Content "$tmp41c\otherapp\current\manifest.json" -Encoding UTF8
+Set-Content "$tmp41c\otherapp\current\settings.ini" "path=$fakeCIScoop41c\persist\otherapp\data" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps41c
+Compress-Archive -Path "$tmp41c\otherapp" -DestinationPath "$ps41c\otherapp-1.0.0.zip" -Force
+Remove-TestDir $tmp41c
 @{
-    version = "99.0.0"; buildScoopPersistDir = $fakeCI41c
-    apps = @(@{ name = "otherapp"; version = "1.0.0" })
-} | ConvertTo-Json -Depth 5 | Set-Content "$d41c\release-manifest.json" -Encoding UTF8
-pwsh -File $toolkit -Path $d41c -NoInteraction 2>$null
-$ec41c      = $LASTEXITCODE
-$settings41c = Get-Content "$ver41c\settings.ini" -Raw
+    version = "99.0.0"; buildScoopDir = $fakeCIScoop41c
+    apps = @(@{ name = "otherapp"; version = "1.0.0"; pack = "otherapp-1.0.0.zip" })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps41c\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d41c -ManifestSource "$ps41c\release-manifest.json" -PackSource $ps41c -NoInteraction 2>$null
+$ec41c       = $LASTEXITCODE
+$settings41c = Get-Content "$d41c\scoop\apps\otherapp\current\settings.ini" -Raw -ErrorAction SilentlyContinue
 Assert "[41c] exit 0"                          ($ec41c -eq 0)
-Assert "[41c] CI path NOT replaced (no flag)"  ($settings41c -like "*$fakeCI41c*")
-Remove-TestDir $d41c
+Assert "[41c] CI path NOT replaced (no flag)"  ($settings41c -like "*$fakeCIScoop41c*")
+Remove-TestDir $d41c, $ps41c
 
 
 Write-Host "[42] Activation creates Start Menu shortcuts declared in manifest" -ForegroundColor Cyan

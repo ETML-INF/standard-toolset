@@ -283,6 +283,20 @@ function Invoke-Activate {
         Write-Warning "scoop.ps1 not found at $scoopPs1 - skipping junction reset (will complete on next activation)"
     }
 
+    # Fix CI scoop base paths embedded in installed app files.
+    # buildScoopDir is written by build.ps1; fallback covers pre-field manifests.
+    if ($mf) {
+        $buildScoopBase = if ($mf.PSObject.Properties['buildScoopDir']) { $mf.buildScoopDir } `
+                          else { 'D:\a\standard-toolset\standard-toolset\build\scoop' }
+        foreach ($appEntry in $mf.apps) {
+            $shouldPatch = ($appEntry.name -eq 'nodejs-lts') -or
+                           ($appEntry.PSObject.Properties['patchBuildPaths'] -and $appEntry.patchBuildPaths -eq $true)
+            if (-not $shouldPatch) { continue }
+            if (-not (Test-Path "$scoopdir\apps\$($appEntry.name)\current\manifest.json" -ErrorAction SilentlyContinue)) { continue }
+            Invoke-PatchBuildPaths -toolsetdir $toolsetdir -AppName $appEntry.name -BuildScoopBase $buildScoopBase
+        }
+    }
+
     # App shortcuts declared in manifest (shortcuts field: array of [exePath, displayName] pairs)
     # Mirrors scoop's own shortcuts field; exePath is relative to current\.
     # Shortcuts are recreated on every activation (idempotent).
@@ -392,62 +406,6 @@ function Invoke-Activate {
 
     # Admin Node.js detection
     Invoke-NodeCheck -toolsetdir $toolsetdir -NoInteraction $NoInteraction
-
-    # Fix CI build paths embedded in installed apps
-    # During the GitHub Actions build, scoop embeds the runner's persist path into text config/script
-    # files (e.g. nodejs-lts npmrc). We replace that CI path with the user's actual persist dir.
-    # Apps opt in via patchBuildPaths:true in apps.json.
-    # nodejs-lts is always patched regardless of the manifest flag: it was the first app affected
-    # (PR #21) and old manifests predate the patchBuildPaths field, so we keep it unconditional
-    # for backward compat with any existing install.
-    #
-    # Default CI persist base = real GitHub Actions Windows runner path baked in at build time.
-    # buildScoopPersistDir in the release manifest overrides this for test injection only.
-    if ($mf) {
-    $buildPersistBase = if ($mf.PSObject.Properties['buildScoopPersistDir']) {
-        $mf.buildScoopPersistDir
-    } else {
-        'D:\a\standard-toolset\standard-toolset\build\scoop\persist'
-    }
-    # Text-like extensions that may embed absolute paths - skip binaries for speed and safety
-    $textExts = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
-
-    foreach ($appEntry in $mf.apps) {
-        $shouldPatch = ($appEntry.name -eq 'nodejs-lts') -or
-                       ($appEntry.PSObject.Properties['patchBuildPaths'] -and $appEntry.patchBuildPaths -eq $true)
-        if (-not $shouldPatch) { continue }
-
-        $appName = $appEntry.name
-        if (-not (Test-Path "$scoopdir\apps\$appName\current\manifest.json")) { continue }
-
-        Write-Host "Fixing $appName paths..." -ForegroundColor Green
-        $version = (Get-Content "$scoopdir\apps\$appName\current\manifest.json" | ConvertFrom-Json).version
-
-        $oldPattern = [regex]::Escape($buildPersistBase + '\' + $appName)
-        $newPersist = "$scoopdir\persist\$appName"
-
-        $scanRoots = @(
-            "$scoopdir\apps\$appName\$version",  # full versioned install
-            "$scoopdir\persist\$appName"          # persist dir
-        )
-        foreach ($root in $scanRoots) {
-            if (-not (Test-Path $root)) { continue }
-            # Use .NET enumeration for performance on large trees (node_modules has thousands of files)
-            try { $files = [System.IO.Directory]::EnumerateFiles($root, '*', [System.IO.SearchOption]::AllDirectories) }
-            catch { continue }
-            foreach ($file in $files) {
-                if ($file -like '*\node_modules\*') { continue }  # skip large dep trees
-                $ext = [System.IO.Path]::GetExtension($file)
-                if (-not $ext -or $textExts -notcontains $ext.ToLowerInvariant()) { continue }
-                $c = Get-Content $file -Raw -ErrorAction SilentlyContinue
-                if ($c -and $c -match $oldPattern) {
-                    $updated = $c -replace $oldPattern, $newPersist
-                    [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
-                }
-            }
-        }
-    } # end foreach ($appEntry in $mf.apps)
-    } # end if ($mf) patchBuildPaths
 
     # Desktop shortcut
     $scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"
@@ -1365,6 +1323,36 @@ function Show-AppStatus {
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
 }
 
+function Invoke-PatchBuildPaths {
+    # Replaces the CI scoop base path embedded in app files with the real installed scoop dir.
+    # Replacing the whole scoop base (not just persist\) fixes any embedded reference in one pass.
+    # Called after the junction loop so current\ is already a valid junction to the versioned dir;
+    # scanning current\ alone covers both fresh installs and existing ones without double-scanning.
+    param([string]$toolsetdir, [string]$AppName, [string]$BuildScoopBase)
+    $scoopdir   = "$toolsetdir\scoop"
+    $textExts   = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
+    $oldPattern = [regex]::Escape($BuildScoopBase)
+    $scanRoots  = @(
+        "$scoopdir\apps\$AppName\current",  # junction to versioned dir after junction loop
+        "$scoopdir\persist\$AppName"         # persist dir
+    )
+    foreach ($root in $scanRoots) {
+        if (-not (Test-Path $root)) { continue }
+        try { $files = [System.IO.Directory]::EnumerateFiles($root, '*', [System.IO.SearchOption]::AllDirectories) }
+        catch { continue }
+        foreach ($file in $files) {
+            if ($file -like '*\node_modules\*') { continue }
+            $ext = [System.IO.Path]::GetExtension($file)
+            if (-not $ext -or $textExts -notcontains $ext.ToLowerInvariant()) { continue }
+            $c = Get-Content $file -Raw -ErrorAction SilentlyContinue
+            if ($c -and $c -match $oldPattern) {
+                $updated = $c -replace $oldPattern, $scoopdir
+                [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
+            }
+        }
+    }
+}
+
 function Install-Pack {
     param([string]$PackPath, [string]$toolsetdir)
     $appsDir = "$toolsetdir\scoop\apps"
@@ -1483,7 +1471,6 @@ if ($Command -eq "update") {
         # This avoids a race where a new release is published between manifest fetch and pack download.
         $effectiveVersion = if ([string]::IsNullOrEmpty($Version)) { $manifest.version } else { $Version }
         $archivesDir      = Join-Path $toolsetdir "archives"
-
         $failed = @()
         foreach ($app in $toDo) {
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
