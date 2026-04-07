@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.0](https://github.com/ETML-INF/standard-toolset/compare/v2.2.6...v2.3.0) (2026-04-05)
+
+
+### Features
+
+* **buildpathpatch:** prepatch before activation as we have info (nodejs-lts wrong npm path) ([c778a9d](https://github.com/ETML-INF/standard-toolset/commit/c778a9d19b37ca454509cd655ce59fe942694bce))
+* **progress:** nice progress ux ([f187491](https://github.com/ETML-INF/standard-toolset/commit/f18749167141a6077c976fb8cabb1acba1b1c212))
+
+
+### Bug Fixes
+
+* **toolset:** private apps client-side merge + L:\ copy-before-extract ([7b5d771](https://github.com/ETML-INF/standard-toolset/commit/7b5d7718c094ff15ab8bc95e7703c9cfcdbf1c1d))
+* **v2:** v2 main fixes ([f187491](https://github.com/ETML-INF/standard-toolset/commit/f18749167141a6077c976fb8cabb1acba1b1c212))
+
 ## [2.2.6](https://github.com/ETML-INF/standard-toolset/compare/v2.2.5...v2.2.6) (2026-04-02)
 
 
