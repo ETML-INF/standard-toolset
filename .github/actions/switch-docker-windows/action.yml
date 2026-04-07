@@ -45,11 +45,24 @@ runs:
           # Restarting it clears that state so Docker can create the Windows nat network.
           Restart-Service hns
           Start-Sleep -Seconds 3
-          try {
-            Start-Service docker -ErrorAction Stop
-          } catch {
+          # HNS initialization can be slow; retry docker start to handle the transient
+          # "hnsCall failed: The system cannot find the file specified. (0x2)" race.
+          $started = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+              Start-Service docker -ErrorAction Stop
+              $started = $true
+              break
+            } catch {
+              if ($attempt -lt 3) {
+                Write-Warning "Docker start attempt $attempt failed, retrying in 5s..."
+                Start-Sleep -Seconds 5
+              }
+            }
+          }
+          if (-not $started) {
             Write-Error "Docker failed to start. Event log:`n$(Get-EventLog Application -Source '*docker*' -Newest 5 -ErrorAction SilentlyContinue | ForEach-Object { $_.Message } | Out-String)"
-            throw
+            throw "Docker failed to start after 3 attempts."
           }
         }
         $deadline = (Get-Date).AddSeconds(60)
