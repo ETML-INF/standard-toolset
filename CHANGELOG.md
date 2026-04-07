@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/ETML-INF/standard-toolset/compare/v2.3.0...v2.3.1) (2026-04-07)
+
+
+### Bug Fixes
+
+* **build:** better build ([996c1a8](https://github.com/ETML-INF/standard-toolset/commit/996c1a80e178c2f666256bb57e3cf2ffccecb0d6))
+
 ## [2.3.0](https://github.com/ETML-INF/standard-toolset/compare/v2.2.6...v2.3.0) (2026-04-05)
 
 
