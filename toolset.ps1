@@ -1306,12 +1306,10 @@ function Get-AppDiff {
 }
 
 function Show-AppStatus {
-    param($Diff, $LocalVersions, [switch]$SkipPending)
+    param($Diff, $LocalVersions)
     Write-Host ""
-    if (-not $SkipPending) {
-        foreach ($a in $Diff.ToInstall) { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
-        foreach ($a in $Diff.ToUpdate)  { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
-    }
+    foreach ($a in $Diff.ToInstall) { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
+    foreach ($a in $Diff.ToUpdate)  { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
     foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair" -ForegroundColor Yellow }
     foreach ($a in $Diff.UpToDate) {
         if ($LocalVersions[$a.name] -eq '?') {
@@ -1321,6 +1319,26 @@ function Show-AppStatus {
         }
     }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
+}
+
+function Show-PostStatus {
+    param($Diff, $LocalVersions, [string[]]$Failed)
+    Write-Host ""
+    foreach ($a in @($Diff.ToInstall) + @($Diff.ToUpdate) + @($Diff.ToRepair)) {
+        if ($Failed -contains $a.name) {
+            Write-Host "  [x] $($a.name.PadRight(20)) $($a.version)  failed" -ForegroundColor Red
+        } else {
+            Write-Host "  [*] $($a.name.PadRight(20)) $($a.version)  done" -ForegroundColor Green
+        }
+    }
+    foreach ($a in $Diff.UpToDate) {
+        if ($LocalVersions[$a.name] -eq '?') {
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)" -ForegroundColor Green
+        } else {
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green
+        }
+    }
+    foreach ($n in $Diff.Removed) { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
 }
 
 function Invoke-PatchBuildPaths {
@@ -1419,7 +1437,7 @@ if ($Command -eq "update") {
     $toUpdate  = $diff.ToUpdate
     $toRepair  = $diff.ToRepair
     $removed   = $diff.Removed
-    Show-AppStatus -Diff $diff -LocalVersions $localVersions -SkipPending
+    Show-AppStatus -Diff $diff -LocalVersions $localVersions
 
     # Removed app handling - split public orphans from private apps (marker: .toolset-private).
     # Private apps are protected from -Clean: only -CleanPrivate removes them, so a temporarily
@@ -1504,6 +1522,7 @@ if ($Command -eq "update") {
             }
         }
 
+        Show-PostStatus -Diff $diff -LocalVersions $localVersions -Failed $failed
         if ($failed.Count -gt 0) {
             Write-Warning "The following apps may be incomplete: $($failed -join ', ')"
         }

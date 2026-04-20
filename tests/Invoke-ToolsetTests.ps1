@@ -982,6 +982,32 @@ Remove-Item $lnk42 -Force -ErrorAction SilentlyContinue
 Remove-TestDir $d42
 
 
+Write-Host "[43] Pre-status shows [^] for apps to install during update" -ForegroundColor Cyan
+$d43 = "C:\tmp\s43d"; $ps43 = "C:\tmp\s43p"
+& $helper -OutputDir $ps43 -Apps @(@{Name="app1"; Version="1.0.0"})
+New-Item -Force -ItemType Directory $d43 | Out-Null
+$out43 = pwsh -File $toolkit update -Path $d43 -ManifestSource "$ps43\release-manifest.json" -PackSource $ps43 -NoInteraction 2>&1
+Assert "[43] [^] shown for app to install" ($out43 -match "\[\^\]")
+Remove-TestDir $d43, $ps43
+
+Write-Host "[44] Post-status shows [*] for successfully installed apps" -ForegroundColor Cyan
+$d44 = "C:\tmp\s44d"; $ps44 = "C:\tmp\s44p"
+& $helper -OutputDir $ps44 -Apps @(@{Name="app1"; Version="1.0.0"})
+New-Item -Force -ItemType Directory $d44 | Out-Null
+$out44 = pwsh -File $toolkit update -Path $d44 -ManifestSource "$ps44\release-manifest.json" -PackSource $ps44 -NoInteraction 2>&1
+Assert "[44] [*] shown after successful install" ($out44 -match "\[\*\]")
+Remove-TestDir $d44, $ps44
+
+Write-Host "[45] Post-status shows [x] for failed and [*] for successful" -ForegroundColor Cyan
+$d45 = "C:\tmp\s45d"; $ps45 = "C:\tmp\s45p"
+& $helper -OutputDir $ps45 -Apps @(@{Name="app1"; Version="1.0.0"}, @{Name="app2"; Version="2.0.0"})
+Remove-Item "$ps45\app2-2.0.0.zip" -Force
+New-Item -Force -ItemType Directory $d45 | Out-Null
+$out45 = pwsh -File $toolkit update -Path $d45 -ManifestSource "$ps45\release-manifest.json" -PackSource $ps45 -NoInteraction 2>&1
+Assert "[45] [*] shown for successful app"  ($out45 -match "\[\*\]")
+Assert "[45] [x] shown for failed app"      ($out45 -match "\[x\]")
+Remove-TestDir $d45, $ps45
+
 if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red
