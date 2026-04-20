@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.2](https://github.com/ETML-INF/standard-toolset/compare/v2.3.1...v2.3.2) (2026-04-20)
+
+
+### Bug Fixes
+
+* **status:** full status report fixed and improved (no more skipPending) ([082ddf4](https://github.com/ETML-INF/standard-toolset/commit/082ddf4f4e7037d241ae16792295063ef2b8fc51))
+
 ## [2.3.1](https://github.com/ETML-INF/standard-toolset/compare/v2.3.0...v2.3.1) (2026-04-07)
 
 
