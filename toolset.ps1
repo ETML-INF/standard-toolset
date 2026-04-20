@@ -222,6 +222,15 @@ function Invoke-Activate {
             if (-not $appEntry.PSObject.Properties['version']) { continue }
             $appDir     = "$scoopdir\apps\$($appEntry.name)"
             $verDir     = "$appDir\$($appEntry.version)"
+            # Private apps without an explicit version are stored as '?'.  Scoop reset does
+            # not manage them so the toolset must create the current\ junction itself.
+            # Detect the highest non-stale versioned subdir as the junction target.
+            if ($appEntry.version -eq '?') {
+                $detected = Get-ChildItem $appDir -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -ne 'current' -and $_.Name -notlike '*-toBeDeleted' } |
+                    Sort-Object Name -Descending | Select-Object -First 1
+                if ($detected) { $verDir = $detected.FullName } else { continue }
+            }
             $jPath      = "$appDir\current"
             # Use Test-IsReparsePoint (raw attribute read) so broken junctions (target
             # deleted/renamed) are detected correctly -- Get-Item returns $null for broken
@@ -812,6 +821,11 @@ function Get-LocalAppVersions {
                     # Try to ask the binary directly (works for scoop).
                     $ver = Get-ScoopVersionFromBinary "$currentDir\bin\scoop.ps1"
                     $result[$appName] = if ($ver) { $ver } else { '?' }
+                } else {
+                    # Junction with unreadable manifest (broken target).  Record '?' so
+                    # the integrity check decides whether a reinstall is needed, rather
+                    # than silently omitting the app and showing it as [^] ToInstall.
+                    $result[$appName] = '?'
                 }
             }
         }
@@ -1115,23 +1129,32 @@ function Remove-Junction {
     .SYNOPSIS
         Removes a single junction (directory reparse point) without following its target.
     .DESCRIPTION
-        Uses cmd.exe's rmdir to remove the directory entry unconditionally.
-        Unlike Remove-Item, this works for both valid junctions and broken ones
-        (where the target directory no longer exists).  PS5.1's Remove-Item
-        tries to stat the target before removing the reparse point entry; when
-        the target is gone it throws instead of just deleting the link.
-        cmd rmdir without /s never recurses into the target.
+        Uses win32 shell as remove-dir api calls may fail
     .PARAMETER Path
         Full path to the junction directory entry to remove.
     .OUTPUTS
         None
     #>
     param([string]$Path)
-    # [System.IO.Directory]::Delete calls Win32 RemoveDirectory() directly without
-    # following the reparse point.  cmd rmdir checks directory emptiness by following
-    # the junction, so it fails when the target is non-empty or missing (broken junction).
-    # RemoveDirectory() removes the junction entry unconditionally in both cases.
-    try { [System.IO.Directory]::Delete($Path) } catch {}
+    # Shell.Application: Namespace() the PARENT folder, ParseName() the junction leaf.
+    # Operates on the directory entry without following the reparse point, so it handles
+    # both valid junctions (non-empty target) and broken junctions (missing target).
+    # Falls back to cmd rmdir for CLI-only environments (NanoServer, Server Core) where
+    # Shell.Application is not available.
+    $removed = $false
+    try {
+        $shell  = New-Object -ComObject Shell.Application
+        $folder = $shell.Namespace((Split-Path $Path -Parent))
+        $item   = $folder.ParseName((Split-Path $Path -Leaf))
+        if ($item) { $item.InvokeVerb('delete'); $removed = $true }
+    } catch {}
+    if (-not $removed) {
+        cmd /c "rmdir /Q `"$Path`"" 2>&1 | Out-Null
+        $stillPresent = try { [bool]([System.IO.File]::GetAttributes($Path) -band [System.IO.FileAttributes]::ReparsePoint) } catch { $false }
+        if ($stillPresent) {
+            Write-Warning "Remove-Junction '$Path': Shell unavailable and cmd rmdir did not remove it"
+        }
+    }
 }
 
 function Test-IsReparsePoint {
@@ -1161,7 +1184,7 @@ function Remove-ReparsePoints {
         Removes all reparse points (junction links) under a directory without following them.
     .DESCRIPTION
         Recursively enumerates a directory tree, stopping at reparse points instead of
-        traversing into them, then removes each link via Remove-Junction (cmd rmdir) so the
+        traversing into them, then removes each link via Remove-Junction (Shell.Application) so the
         junction target (e.g. scoop\persist) is never touched.
         This is required before Remove-Item -Recurse on a versioned app dir because
         PS5.1 / .NET 4.x follow junctions during recursive enumeration and raise
