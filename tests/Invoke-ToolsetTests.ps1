@@ -1008,6 +1008,27 @@ Assert "[45] [*] shown for successful app"  ($out45 -match "\[\*\]")
 Assert "[45] [x] shown for failed app"      ($out45 -match "\[x\]")
 Remove-TestDir $d45, $ps45
 
+Write-Host "[46] Broken current junction (prior stale-dir rename) is repaired on next update" -ForegroundColor Cyan
+# Simulates: previous update renamed 1.0.0->1.0.0-toBeDeleted but junction was never
+# swung (Remove-Junction failed on broken reparse point with cmd rmdir).
+# Next update must repair the junction via [System.IO.Directory]::Delete fix.
+$d46 = "C:\tmp\s46d"; $ps46 = "C:\tmp\s46p"
+& $helper -OutputDir $ps46 -Apps @(@{Name="app1"; Version="2.0.0"})
+New-Item -Force -ItemType Directory $d46 | Out-Null
+$appDir46 = "$d46\scoop\apps\app1"
+New-Item -Force -ItemType Directory "$appDir46\1.0.0" | Out-Null
+@{version="1.0.0"} | ConvertTo-Json | Set-Content "$appDir46\1.0.0\manifest.json" -Encoding UTF8
+New-Item -ItemType Junction -Path "$appDir46\current" -Value "$appDir46\1.0.0" | Out-Null
+Rename-Item "$appDir46\1.0.0" "1.0.0-toBeDeleted"
+pwsh -File $toolkit update -Path $d46 -ManifestSource "$ps46\release-manifest.json" -PackSource $ps46 -NoInteraction 2>&1 | Out-Null
+$ec46  = $LASTEXITCODE
+$jItem46 = Get-Item "$appDir46\current" -Force -ErrorAction SilentlyContinue
+Assert "[46] exit 0"                      ($ec46 -eq 0)
+Assert "[46] junction valid (not broken)" ($null -ne $jItem46)
+Assert "[46] junction -> 2.0.0"           ($jItem46.Target -like "*\2.0.0")
+Assert "[46] v2.0.0 installed"            (Test-Path "$appDir46\2.0.0\manifest.json")
+Remove-TestDir $d46, $ps46
+
 if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red

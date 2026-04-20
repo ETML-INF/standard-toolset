@@ -1127,7 +1127,11 @@ function Remove-Junction {
         None
     #>
     param([string]$Path)
-    cmd /c rmdir "$Path" 2>$null
+    # [System.IO.Directory]::Delete calls Win32 RemoveDirectory() directly without
+    # following the reparse point.  cmd rmdir checks directory emptiness by following
+    # the junction, so it fails when the target is non-empty or missing (broken junction).
+    # RemoveDirectory() removes the junction entry unconditionally in both cases.
+    try { [System.IO.Directory]::Delete($Path) } catch {}
 }
 
 function Test-IsReparsePoint {
@@ -1171,6 +1175,16 @@ function Remove-ReparsePoints {
     Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
             Remove-Junction $_.FullName
+            # If deletion still failed (e.g. access denied), rename the junction so
+            # Remove-Item -Recurse cannot follow it into the persist target.
+            # The renamed entry is retried for removal on the next update run.
+            if (Test-IsReparsePoint $_.FullName) {
+                $staleName = "$($_.Name)-toBeDeleted"
+                $stalePath = Join-Path (Split-Path $_.FullName) $staleName
+                if (-not (Test-IsReparsePoint $stalePath) -and -not (Test-Path $stalePath -ErrorAction SilentlyContinue)) {
+                    try { Rename-Item -LiteralPath $_.FullName -NewName $staleName -ErrorAction Stop } catch {}
+                }
+            }
         } elseif ($_.PSIsContainer) {
             Remove-ReparsePoints $_.FullName
         }
