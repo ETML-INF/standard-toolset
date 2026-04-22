@@ -894,9 +894,7 @@ Assert "[40b] manifest.json accessible via current\"          (Test-Path "$junc4
 Assert "[40b] versioned dir app1\1.0.0\ exists"               (Test-Path "$d40b\scoop\apps\app1\1.0.0")
 Remove-TestDir $p40b, $d40b
 
-Write-Host "[41a] patchBuildPaths — nodejs-lts always patched at install time (no flag needed)" -ForegroundColor Cyan
-# Patching now happens immediately after Install-Pack; activation no longer does it.
-# Pack contains .npmrc with CI scoop base path embedded; update must replace it before activation.
+Write-Host "[41a] patchBuildPaths — listed files patched (.npmrc)" -ForegroundColor Cyan
 $d41a = "C:\tmp\s41ad"; $ps41a = "C:\tmp\s41ap"; $fakeCIScoop41 = "C:\fake-ci-scoop"
 $tmp41a = "$env:TEMP\s41a-$(Get-Random)"
 New-Item -Force -ItemType Directory "$tmp41a\nodejs-lts\current" | Out-Null
@@ -907,17 +905,18 @@ Compress-Archive -Path "$tmp41a\nodejs-lts" -DestinationPath "$ps41a\nodejs-lts-
 Remove-TestDir $tmp41a
 @{
     version = "99.0.0"; buildScoopDir = $fakeCIScoop41
-    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip" })
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip"
+                patchBuildPaths = @(".npmrc") })
 } | ConvertTo-Json -Depth 5 | Set-Content "$ps41a\release-manifest.json" -Encoding UTF8
 pwsh -File $toolkit update -Path $d41a -ManifestSource "$ps41a\release-manifest.json" -PackSource $ps41a -NoInteraction 2>$null
 $ec41a    = $LASTEXITCODE
 $npmrc41a = Get-Content "$d41a\scoop\apps\nodejs-lts\current\.npmrc" -Raw -ErrorAction SilentlyContinue
-Assert "[41a] exit 0"                          ($ec41a -eq 0)
+Assert "[41a] exit 0"                           ($ec41a -eq 0)
 Assert "[41a] CI scoop path replaced in .npmrc" ($npmrc41a -notlike "*$fakeCIScoop41*")
 Assert "[41a] real scoop path in .npmrc"        ($npmrc41a -like "*\scoop\persist\nodejs-lts*")
 Remove-TestDir $d41a, $ps41a
 
-Write-Host "[41b] patchBuildPaths — app with patchBuildPaths:true patched at install time" -ForegroundColor Cyan
+Write-Host "[41b] patchBuildPaths — listed file (config.ini) patched" -ForegroundColor Cyan
 $d41b = "C:\tmp\s41bd"; $ps41b = "C:\tmp\s41bp"; $fakeCIScoop41b = "C:\fake-ci-scoop-b"
 $tmp41b = "$env:TEMP\s41b-$(Get-Random)"
 New-Item -Force -ItemType Directory "$tmp41b\myapp\current" | Out-Null
@@ -928,7 +927,8 @@ Compress-Archive -Path "$tmp41b\myapp" -DestinationPath "$ps41b\myapp-1.0.0.zip"
 Remove-TestDir $tmp41b
 @{
     version = "99.0.0"; buildScoopDir = $fakeCIScoop41b
-    apps = @(@{ name = "myapp"; version = "1.0.0"; pack = "myapp-1.0.0.zip"; patchBuildPaths = $true })
+    apps = @(@{ name = "myapp"; version = "1.0.0"; pack = "myapp-1.0.0.zip"
+                patchBuildPaths = @("config.ini") })
 } | ConvertTo-Json -Depth 5 | Set-Content "$ps41b\release-manifest.json" -Encoding UTF8
 pwsh -File $toolkit update -Path $d41b -ManifestSource "$ps41b\release-manifest.json" -PackSource $ps41b -NoInteraction 2>$null
 $ec41b  = $LASTEXITCODE
@@ -1029,6 +1029,60 @@ Assert "[46] junction valid (not broken)" ($null -ne $jItem46)
 #Assert "[46] junction -> 2.0.0"           ($jItem46.Target -like "*\2.0.0")
 #Assert "[46] v2.0.0 installed"            (Test-Path "$appDir46\2.0.0\manifest.json")
 Remove-TestDir $d46, $ps46
+
+Write-Host "[47] patchBuildPaths -- node_modules\npm\npmrc patched when listed in patchBuildPaths" -ForegroundColor Cyan
+$d47 = "C:\tmp\s47d"; $ps47 = "C:\tmp\s47p"; $fakeCIScoop47 = "C:\fake-ci-scoop47"
+$tmp47 = "$env:TEMP\s47-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp47\nodejs-lts\current\node_modules\npm" | Out-Null
+@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$tmp47\nodejs-lts\current\manifest.json" -Encoding UTF8
+Set-Content "$tmp47\nodejs-lts\current\node_modules\npm\npmrc" "prefix=$fakeCIScoop47\persist\nodejs-lts" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps47
+Compress-Archive -Path "$tmp47\nodejs-lts" -DestinationPath "$ps47\nodejs-lts-20.0.0.zip" -Force
+Remove-TestDir $tmp47
+@{
+    version = "99.0.0"; buildScoopDir = $fakeCIScoop47
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip"
+                patchBuildPaths = @("node_modules\npm\npmrc") })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps47\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d47 -ManifestSource "$ps47\release-manifest.json" -PackSource $ps47 -NoInteraction 2>$null
+$ec47        = $LASTEXITCODE
+$nodeNpmrc47 = Get-Content "$d47\scoop\apps\nodejs-lts\current\node_modules\npm\npmrc" -Raw -ErrorAction SilentlyContinue
+Assert "[47] exit 0"                               ($ec47 -eq 0)
+Assert "[47] node_modules\npm\npmrc patched"       ($nodeNpmrc47 -notlike "*$fakeCIScoop47*")
+Assert "[47] node_modules\npm\npmrc has real path" ($nodeNpmrc47 -like "*\scoop\persist\nodejs-lts*")
+Remove-TestDir $d47, $ps47
+
+
+Write-Host "[48] Private app shortcuts field propagated to saved manifest" -ForegroundColor Cyan
+$d48      = "C:\tmp\s48d"
+$ps48     = "C:\tmp\s48p"
+$ldrive48 = "C:\tmp\s48-ldrive"
+New-Item -Force -ItemType Directory $ldrive48 | Out-Null
+$tmp48 = "$env:TEMP\fakepck-secretapp-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp48\secretapp\current" | Out-Null
+'{"version":"1.0.0"}' | Set-Content "$tmp48\secretapp\current\manifest.json" -Encoding UTF8
+Set-Content "$tmp48\secretapp\current\myapp.exe" "fake exe" -Encoding UTF8
+Compress-Archive -Path "$tmp48\secretapp" -DestinationPath "$ldrive48\secretapp-1.0.0.zip" -Force
+Remove-TestDir $tmp48
+@(@{
+    name = "secretapp"; version = "1.0.0"
+    localPack = "$ldrive48\secretapp-1.0.0.zip"
+    shortcuts = @(,@("myapp.exe","Secret App"))
+}) | ConvertTo-Json -Depth 5 | Set-Content "$ldrive48\private-apps.json" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps48
+@{ version = "99.0.0"; apps = @() } | ConvertTo-Json -Depth 5 | Set-Content "$ps48\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d48 -ManifestSource "$ps48\release-manifest.json" `
+    -PackSource $ps48 -LDrivePath $ldrive48 -NoInteraction 2>&1 | Out-Null
+$ec48        = $LASTEXITCODE
+$savedMf48   = try { Get-Content "$d48\release-manifest.json" -Raw | ConvertFrom-Json } catch { $null }
+$secretApp48 = $savedMf48.apps | Where-Object { $_.name -eq "secretapp" }
+Assert "[48] exit 0"                                    ($ec48 -eq 0)
+Assert "[48] secretapp in saved manifest"               ($null -ne $secretApp48)
+Assert "[48] shortcuts field present in saved manifest" ($secretApp48 -and $secretApp48.PSObject.Properties['shortcuts'])
+Assert "[48] shortcuts entry has correct exe"           ($secretApp48 -and $secretApp48.shortcuts -and $secretApp48.shortcuts[0][0] -eq "myapp.exe")
+Assert "[48] shortcuts entry has correct display name"  ($secretApp48 -and $secretApp48.shortcuts -and $secretApp48.shortcuts[0][1] -eq "Secret App")
+Remove-TestDir $d48, $ps48, $ldrive48
+
 
 if ($script:fail -gt 0) {
     Write-Host ""

@@ -298,11 +298,11 @@ function Invoke-Activate {
         $buildScoopBase = if ($mf.PSObject.Properties['buildScoopDir']) { $mf.buildScoopDir } `
                           else { 'D:\a\standard-toolset\standard-toolset\build\scoop' }
         foreach ($appEntry in $mf.apps) {
-            $shouldPatch = ($appEntry.name -eq 'nodejs-lts') -or
-                           ($appEntry.PSObject.Properties['patchBuildPaths'] -and $appEntry.patchBuildPaths -eq $true)
-            if (-not $shouldPatch) { continue }
+            if (-not $appEntry.PSObject.Properties['patchBuildPaths']) { continue }
+            $patchFiles = @($appEntry.patchBuildPaths | ForEach-Object { [string]$_ })
+            if ($patchFiles.Count -eq 0) { continue }
             if (-not (Test-Path "$scoopdir\apps\$($appEntry.name)\current\manifest.json" -ErrorAction SilentlyContinue)) { continue }
-            Invoke-PatchBuildPaths -toolsetdir $toolsetdir -AppName $appEntry.name -BuildScoopBase $buildScoopBase
+            Invoke-PatchBuildPaths -toolsetdir $toolsetdir -AppName $appEntry.name -BuildScoopBase $buildScoopBase -FilePaths $patchFiles
         }
     }
 
@@ -435,11 +435,15 @@ function Invoke-Activate {
 
     # Grant all users full control  - best effort (requires elevation; silent if unavailable)
     Write-Host "Setting permissions for all users..." -ForegroundColor Green
-    & icacls $toolsetdir /grant "Users:(OI)(CI)M" /T /C /Q 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "Permissions set." -ForegroundColor Green
-    } else {
-        Write-Verbose "icacls returned $LASTEXITCODE  - run as administrator to set permissions"
+    try {
+        & icacls $toolsetdir /grant "Users:(OI)(CI)M" /T /C /Q 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Permissions reset." -ForegroundColor Green
+        } else {
+            Write-Verbose "icacls returned $LASTEXITCODE  - run as administrator to reset permissions if needed"
+        }
+    } catch {
+        Write-Verbose "icacls failed: $_ - run as administrator to reset permissions if needed"
     }
 }
 
@@ -480,7 +484,11 @@ function Expand-ZipWithProgress {
             if (-not (Test-Path $destDir -PathType Container)) {
                 New-Item -ItemType Directory -Force -Path $destDir | Out-Null
             }
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destFile, $true)
+            try {
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destFile, $true)
+            } catch {
+                Write-Warning "Could not extract '$($entry.FullName)': $_"
+            }
         }
         Write-Host ""
     } finally {
@@ -646,6 +654,9 @@ function Merge-PrivateApps {
                       elseif ($lpFile -match '-(\d[\d.]*)\.zip$') { $Matches[1] } `
                       else { 'unknown' }
             $entry = [pscustomobject]@{ name = $pa.name; version = $lpVer; pack = $lpFile; packUrl = $pa.localPack }
+            if ($pa.PSObject.Properties['shortcuts']) {
+                Add-Member -InputObject $entry -NotePropertyName 'shortcuts' -NotePropertyValue $pa.shortcuts
+            }
             $Manifest.apps = @($Manifest.apps) + @($entry)
             $existingNames += $pa.name
             $added++
@@ -1379,30 +1390,24 @@ function Show-PostStatus {
 }
 
 function Invoke-PatchBuildPaths {
-    # Replaces the CI scoop base path embedded in app files with the real installed scoop dir.
-    # Replacing the whole scoop base (not just persist\) fixes any embedded reference in one pass.
-    # Called after the junction loop so current\ is already a valid junction to the versioned dir;
-    # scanning current\ alone covers both fresh installs and existing ones without double-scanning.
-    param([string]$toolsetdir, [string]$AppName, [string]$BuildScoopBase)
+    # Replaces the CI scoop base path embedded in specific app files with the real installed scoop dir.
+    # FilePaths is an array of paths relative to current\ (and persist\) to patch.
+    param([string]$toolsetdir, [string]$AppName, [string]$BuildScoopBase, [string[]]$FilePaths)
     $scoopdir   = "$toolsetdir\scoop"
-    $textExts   = @('.js','.mjs','.cjs','.json','.cmd','.ps1','.bat','.npmrc','.ini','.cfg','.txt','.rc')
     $oldPattern = [regex]::Escape($BuildScoopBase)
     $scanRoots  = @(
-        "$scoopdir\apps\$AppName\current",  # junction to versioned dir after junction loop
-        "$scoopdir\persist\$AppName"         # persist dir
+        "$scoopdir\apps\$AppName\current",
+        "$scoopdir\persist\$AppName"
     )
-    foreach ($root in $scanRoots) {
-        if (-not (Test-Path $root)) { continue }
-        try { $files = [System.IO.Directory]::EnumerateFiles($root, '*', [System.IO.SearchOption]::AllDirectories) }
-        catch { continue }
-        foreach ($file in $files) {
-            if ($file -like '*\node_modules\*') { continue }
-            $ext = [System.IO.Path]::GetExtension($file)
-            if (-not $ext -or $textExts -notcontains $ext.ToLowerInvariant()) { continue }
-            $c = Get-Content $file -Raw -ErrorAction SilentlyContinue
+    foreach ($filePath in $FilePaths) {
+        foreach ($root in $scanRoots) {
+            if (-not (Test-Path $root -ErrorAction SilentlyContinue)) { continue }
+            $full = Join-Path $root $filePath
+            if (-not (Test-Path $full -PathType Leaf -ErrorAction SilentlyContinue)) { continue }
+            $c = Get-Content $full -Raw -ErrorAction SilentlyContinue
             if ($c -and $c -match $oldPattern) {
                 $updated = $c -replace $oldPattern, $scoopdir
-                [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
+                [System.IO.File]::WriteAllText($full, $updated, [System.Text.UTF8Encoding]::new($false))
             }
         }
     }
