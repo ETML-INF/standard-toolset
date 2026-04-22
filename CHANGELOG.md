@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.3](https://github.com/ETML-INF/standard-toolset/compare/v2.3.2...v2.3.3) (2026-04-20)
+
+
+### Bug Fixes
+
+* **junction removal:** avoid access denied on dead junctions ([7092bb8](https://github.com/ETML-INF/standard-toolset/commit/7092bb85f80c0f5e778649a4a80830e10fbab58d))
+* **junction:** use shell to remove buggy junctions ([8e29749](https://github.com/ETML-INF/standard-toolset/commit/8e29749a549152c8e3cc92e9fb40105364cbe383))
+
 ## [2.3.2](https://github.com/ETML-INF/standard-toolset/compare/v2.3.1...v2.3.2) (2026-04-20)
 
 
