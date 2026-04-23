@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.7](https://github.com/ETML-INF/standard-toolset/compare/v2.3.6...v2.3.7) (2026-04-23)
+
+
+### Bug Fixes
+
+* **app version:** discard app folders without version (unknown for instance) ([a84e366](https://github.com/ETML-INF/standard-toolset/commit/a84e366ca39d3fa8155468322418a208f3621641))
+* **integrity check:** more junction resilient and discard persist specified files ([a84e366](https://github.com/ETML-INF/standard-toolset/commit/a84e366ca39d3fa8155468322418a208f3621641))
+
 ## [2.3.6](https://github.com/ETML-INF/standard-toolset/compare/v2.3.5...v2.3.6) (2026-04-23)
 
 
