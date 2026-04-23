@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.5](https://github.com/ETML-INF/standard-toolset/compare/v2.3.4...v2.3.5) (2026-04-23)
+
+
+### Bug Fixes
+
+* **private app:** handle private app as full custom case ([4b8e2b8](https://github.com/ETML-INF/standard-toolset/commit/4b8e2b80b9ab0b76d43244b2a1cb238426adf82d))
+
 ## [2.3.4](https://github.com/ETML-INF/standard-toolset/compare/v2.3.3...v2.3.4) (2026-04-22)
 
 
