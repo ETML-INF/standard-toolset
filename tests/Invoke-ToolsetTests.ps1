@@ -642,10 +642,11 @@ $ldrive35 = "C:\tmp\s35-ldrive"
 & $helper -OutputDir $ps35 -Apps @(@{Name="regularapp";Version="1.0.0"}) -ManifestVersion "99.0.0"
 
 # Build secretapp pack manually and place it in the fake LDrive
+# Pack uses versioned-dir layout (no current\ -- same convention as public app packs)
 $null = New-Item -ItemType Directory -Force -Path $ldrive35
 $tmpSecret35 = "$env:TEMP\fakepck-secretapp-$(Get-Random)"
-$null = New-Item -ItemType Directory -Force -Path "$tmpSecret35\secretapp\current"
-'{"version":"2.0.0"}' | Set-Content "$tmpSecret35\secretapp\current\manifest.json" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force -Path "$tmpSecret35\secretapp\2.0.0"
+'{"version":"2.0.0"}' | Set-Content "$tmpSecret35\secretapp\2.0.0\manifest.json" -Encoding UTF8
 Compress-Archive -Path "$tmpSecret35\secretapp" -DestinationPath "$ldrive35\secretapp-2.0.0.zip" -Force
 Remove-TestDir $tmpSecret35
 
@@ -658,31 +659,33 @@ $out35 = pwsh -File $toolkit update -Path $d35 -ManifestSource "$ps35\release-ma
     -PackSource $ps35 -LDrivePath $ldrive35 -NoInteraction 2>&1
 $ec35  = $LASTEXITCODE
 
-Assert "[35] exit 0"                           ($ec35 -eq 0)
-Assert "[35] no FAILED in output"              ($out35 -notmatch "FAILED")
-Assert "[35] regularapp installed"             (Test-Path "$d35\scoop\apps\regularapp\current\manifest.json")
-Assert "[35] secretapp installed from LDrive"  (Test-Path "$d35\scoop\apps\secretapp\current\manifest.json")
-Assert "[35] private apps merged message shown" ($out35 -match "private app")
+Assert "[35] exit 0"                              ($ec35 -eq 0)
+Assert "[35] no FAILED in output"                 ($out35 -notmatch "FAILED")
+Assert "[35] regularapp installed in scoop\apps"  (Test-Path "$d35\scoop\apps\regularapp\current\manifest.json")
+Assert "[35] secretapp installed in private\apps" (Test-Path "$d35\private\apps\secretapp\current\manifest.json")
+Assert "[35] secretapp not in scoop\apps"         (-not (Test-Path "$d35\scoop\apps\secretapp"))
+Assert "[35] private apps merged message shown"   ($out35 -match "private app")
 Remove-TestDir $d35, $ps35, $ldrive35
 
 
-Write-Host "[35b] Private app install writes .toolset-private marker file" -ForegroundColor Cyan
+Write-Host "[35b] Private app installs to private\apps directory, not scoop\apps" -ForegroundColor Cyan
 $d35b      = "C:\tmp\s35bd"
 $ps35b     = "C:\tmp\s35bp"
 $ldrive35b = "C:\tmp\s35b-ldrive"
 & $helper -OutputDir $ps35b -Apps @(@{Name="app1";Version="1.0.0"})
 $null = New-Item -ItemType Directory -Force -Path $ldrive35b
 $tmpSec35b = "$env:TEMP\fakepck-sec35b-$(Get-Random)"
-$null = New-Item -ItemType Directory -Force -Path "$tmpSec35b\secapp\current"
-'{"version":"1.0.0"}' | Set-Content "$tmpSec35b\secapp\current\manifest.json" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force -Path "$tmpSec35b\secapp\1.0.0"
+'{"version":"1.0.0"}' | Set-Content "$tmpSec35b\secapp\1.0.0\manifest.json" -Encoding UTF8
 Compress-Archive -Path "$tmpSec35b\secapp" -DestinationPath "$ldrive35b\secapp-1.0.0.zip" -Force
 Remove-TestDir $tmpSec35b
 @(@{ name = "secapp"; version = "1.0.0"; localPack = "$ldrive35b\secapp-1.0.0.zip" }) |
     ConvertTo-Json | Set-Content "$ldrive35b\private-apps.json" -Encoding UTF8
 pwsh -File $toolkit update -Path $d35b -ManifestSource "$ps35b\release-manifest.json" `
     -PackSource $ps35b -LDrivePath $ldrive35b -NoInteraction 2>&1 | Out-Null
-Assert "[35b] .toolset-private marker written for private app"  (Test-Path "$d35b\scoop\apps\secapp\.toolset-private")
-Assert "[35b] no .toolset-private marker for public app"        (-not (Test-Path "$d35b\scoop\apps\app1\.toolset-private"))
+Assert "[35b] private app installed in private\apps dir"  (Test-Path "$d35b\private\apps\secapp\current\manifest.json")
+Assert "[35b] private app not in scoop\apps"              (-not (Test-Path "$d35b\scoop\apps\secapp"))
+Assert "[35b] public app not in private\apps dir"         (-not (Test-Path "$d35b\private\apps\app1"))
 Remove-TestDir $d35b, $ps35b, $ldrive35b
 
 
@@ -694,8 +697,8 @@ $ldrive35c = "C:\tmp\s35c-ldrive"
 & $helper -OutputDir $ps35c -Apps @(@{Name="app1";Version="1.0.0"})
 $null = New-Item -ItemType Directory -Force -Path $ldrive35c
 $tmpSec35c = "$env:TEMP\fakepck-sec35c-$(Get-Random)"
-$null = New-Item -ItemType Directory -Force -Path "$tmpSec35c\secapp\current"
-'{"version":"1.0.0"}' | Set-Content "$tmpSec35c\secapp\current\manifest.json" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force -Path "$tmpSec35c\secapp\1.0.0"
+'{"version":"1.0.0"}' | Set-Content "$tmpSec35c\secapp\1.0.0\manifest.json" -Encoding UTF8
 Compress-Archive -Path "$tmpSec35c\secapp" -DestinationPath "$ldrive35c\secapp-1.0.0.zip" -Force
 Remove-TestDir $tmpSec35c
 @(@{ name = "secapp"; version = "1.0.0"; localPack = "$ldrive35c\secapp-1.0.0.zip" }) |
@@ -705,12 +708,12 @@ pwsh -File $toolkit update -Path $d35c -ManifestSource "$ps35c\release-manifest.
 # Pass B: update without LDrive -- secapp becomes private orphan; -Clean must NOT remove it
 $out35c_b = pwsh -File $toolkit update -Path $d35c -ManifestSource "$ps35c\release-manifest.json" `
     -PackSource $ps35c -LDrivePath "C:\nonexistent-ldrive-35c" -Clean -NoInteraction 2>&1
-Assert "[35c] secapp survives -Clean (private orphan)"        (Test-Path "$d35c\scoop\apps\secapp\current\manifest.json")
+Assert "[35c] secapp survives -Clean (private orphan)"        (Test-Path "$d35c\private\apps\secapp\current\manifest.json")
 Assert "[35c] -Clean emits -CleanPrivate hint in warning"     ($out35c_b -match "CleanPrivate")
 # Pass C: -CleanPrivate removes the private orphan
 pwsh -File $toolkit update -Path $d35c -ManifestSource "$ps35c\release-manifest.json" `
     -PackSource $ps35c -LDrivePath "C:\nonexistent-ldrive-35c" -CleanPrivate -NoInteraction 2>&1 | Out-Null
-Assert "[35c] secapp removed by -CleanPrivate"                (-not (Test-Path "$d35c\scoop\apps\secapp"))
+Assert "[35c] secapp removed by -CleanPrivate"                (-not (Test-Path "$d35c\private\apps\secapp"))
 Assert "[35c] app1 still present after -CleanPrivate"         (Test-Path "$d35c\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d35c, $ps35c, $ldrive35c
 
@@ -987,7 +990,7 @@ $d43 = "C:\tmp\s43d"; $ps43 = "C:\tmp\s43p"
 & $helper -OutputDir $ps43 -Apps @(@{Name="app1"; Version="1.0.0"})
 New-Item -Force -ItemType Directory $d43 | Out-Null
 $out43 = pwsh -File $toolkit update -Path $d43 -ManifestSource "$ps43\release-manifest.json" -PackSource $ps43 -NoInteraction 2>&1
-Assert "[43] [^] shown for app to install" ($out43 -match "\[\^\]")
+Assert "[43] [+] shown for app to install" ($out43 -match "\[\+\]")
 Remove-TestDir $d43, $ps43
 
 Write-Host "[44] Post-status shows [*] for successfully installed apps" -ForegroundColor Cyan
@@ -1053,15 +1056,16 @@ Assert "[47] node_modules\npm\npmrc has real path" ($nodeNpmrc47 -like "*\scoop\
 Remove-TestDir $d47, $ps47
 
 
-Write-Host "[48] Private app shortcuts field propagated to saved manifest" -ForegroundColor Cyan
+Write-Host "[48] Private app: versioned pack installs to private\apps, shortcuts and current\ work" -ForegroundColor Cyan
 $d48      = "C:\tmp\s48d"
 $ps48     = "C:\tmp\s48p"
 $ldrive48 = "C:\tmp\s48-ldrive"
 New-Item -Force -ItemType Directory $ldrive48 | Out-Null
+# Pack uses versioned-dir layout (no current\ -- same convention as public app packs)
 $tmp48 = "$env:TEMP\fakepck-secretapp-$(Get-Random)"
-New-Item -Force -ItemType Directory "$tmp48\secretapp\current" | Out-Null
-'{"version":"1.0.0"}' | Set-Content "$tmp48\secretapp\current\manifest.json" -Encoding UTF8
-Set-Content "$tmp48\secretapp\current\myapp.exe" "fake exe" -Encoding UTF8
+New-Item -Force -ItemType Directory "$tmp48\secretapp\1.0.0" | Out-Null
+'{"version":"1.0.0"}' | Set-Content "$tmp48\secretapp\1.0.0\manifest.json" -Encoding UTF8
+Set-Content "$tmp48\secretapp\1.0.0\myapp.exe" "fake exe" -Encoding UTF8
 Compress-Archive -Path "$tmp48\secretapp" -DestinationPath "$ldrive48\secretapp-1.0.0.zip" -Force
 Remove-TestDir $tmp48
 @(@{
@@ -1071,17 +1075,50 @@ Remove-TestDir $tmp48
 }) | ConvertTo-Json -Depth 5 | Set-Content "$ldrive48\private-apps.json" -Encoding UTF8
 $null = New-Item -ItemType Directory -Force $ps48
 @{ version = "99.0.0"; apps = @() } | ConvertTo-Json -Depth 5 | Set-Content "$ps48\release-manifest.json" -Encoding UTF8
-pwsh -File $toolkit update -Path $d48 -ManifestSource "$ps48\release-manifest.json" `
-    -PackSource $ps48 -LDrivePath $ldrive48 -NoInteraction 2>&1 | Out-Null
+$out48 = pwsh -File $toolkit update -Path $d48 -ManifestSource "$ps48\release-manifest.json" `
+    -PackSource $ps48 -LDrivePath $ldrive48 -NoInteraction 2>&1
 $ec48        = $LASTEXITCODE
 $savedMf48   = try { Get-Content "$d48\release-manifest.json" -Raw | ConvertFrom-Json } catch { $null }
 $secretApp48 = $savedMf48.apps | Where-Object { $_.name -eq "secretapp" }
-Assert "[48] exit 0"                                    ($ec48 -eq 0)
-Assert "[48] secretapp in saved manifest"               ($null -ne $secretApp48)
-Assert "[48] shortcuts field present in saved manifest" ($secretApp48 -and $secretApp48.PSObject.Properties['shortcuts'])
-Assert "[48] shortcuts entry has correct exe"           ($secretApp48 -and $secretApp48.shortcuts -and $secretApp48.shortcuts[0][0] -eq "myapp.exe")
-Assert "[48] shortcuts entry has correct display name"  ($secretApp48 -and $secretApp48.shortcuts -and $secretApp48.shortcuts[0][1] -eq "Secret App")
+Assert "[48] exit 0"                                        ($ec48 -eq 0)
+Assert "[48] secretapp installed in private\apps"           (Test-Path "$d48\private\apps\secretapp\current\manifest.json")
+Assert "[48] secretapp not installed in scoop\apps"         (-not (Test-Path "$d48\scoop\apps\secretapp"))
+Assert "[48] no shortcut-not-found warning"                 ($out48 -notmatch "Shortcut target not found")
+Assert "[48] secretapp in saved manifest"                   ($null -ne $secretApp48)
+Assert "[48] shortcuts field present in saved manifest"     ($secretApp48 -and $secretApp48.PSObject.Properties['shortcuts'])
+Assert "[48] shortcuts entry has correct exe"               ($secretApp48 -and $secretApp48.shortcuts -and $secretApp48.shortcuts[0][0] -eq "myapp.exe")
+Assert "[48] shortcuts entry has correct display name"      ($secretApp48 -and $secretApp48.shortcuts -and $secretApp48.shortcuts[0][1] -eq "Secret App")
 Remove-TestDir $d48, $ps48, $ldrive48
+
+
+Write-Host "[49] Private app: flat zip (arbitrary root dir, no version subdir) installs correctly" -ForegroundColor Cyan
+# Scenario: zip has one arbitrary root dir (e.g. created by 7-zip from a folder named "ROOT"),
+# contents are files and subdirs directly inside - no version subdir.
+# Expected: root dir is stripped, files land in private\apps\myapp\1.0.0\, subdirs preserved.
+$d49      = "C:\tmp\s49d"
+$ps49     = "C:\tmp\s49p"
+$ldrive49 = "C:\tmp\s49-ldrive"
+New-Item -Force -ItemType Directory $ldrive49 | Out-Null
+$tmp49 = "$env:TEMP\fakepck-myapp49-$(Get-Random)"
+# Zip layout: ROOT\ (arbitrary name) -> subdir1\data.txt + readme.txt
+New-Item -Force -ItemType Directory "$tmp49\ROOT\subdir1" | Out-Null
+Set-Content "$tmp49\ROOT\readme.txt"        "readme"    -Encoding UTF8
+Set-Content "$tmp49\ROOT\subdir1\data.txt"  "data"      -Encoding UTF8
+Compress-Archive -Path "$tmp49\ROOT" -DestinationPath "$ldrive49\myapp-1.0.0.zip" -Force
+Remove-Item $tmp49 -Recurse -Force -ErrorAction SilentlyContinue
+@(@{ name = "myapp"; version = "1.0.0"; localPack = "$ldrive49\myapp-1.0.0.zip" }) |
+    ConvertTo-Json | Set-Content "$ldrive49\private-apps.json" -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps49
+@{ version = "99.0.0"; apps = @() } | ConvertTo-Json -Depth 5 | Set-Content "$ps49\release-manifest.json" -Encoding UTF8
+$out49 = pwsh -File $toolkit update -Path $d49 -ManifestSource "$ps49\release-manifest.json" `
+    -PackSource $ps49 -LDrivePath $ldrive49 -NoInteraction 2>&1
+$ec49 = $LASTEXITCODE
+Assert "[49] exit 0"                                   ($ec49 -eq 0)
+Assert "[49] no FAILED in output"                      ($out49 -notmatch "FAILED")
+Assert "[49] readme.txt present at version root"       (Test-Path "$d49\private\apps\myapp\1.0.0\readme.txt")
+Assert "[49] subdir preserved"                         (Test-Path "$d49\private\apps\myapp\1.0.0\subdir1\data.txt")
+Assert "[49] current junction points to version dir"   (Test-Path "$d49\private\apps\myapp\current")
+Remove-TestDir $d49, $ps49, $ldrive49
 
 
 if ($script:fail -gt 0) {

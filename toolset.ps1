@@ -220,11 +220,18 @@ function Invoke-Activate {
         foreach ($appEntry in $mf.apps) {
             # version may be absent on legacy/partial manifest entries - skip them
             if (-not $appEntry.PSObject.Properties['version']) { continue }
-            $appDir     = "$scoopdir\apps\$($appEntry.name)"
+            # Private apps live under private\apps\; public apps under scoop\apps\.
+            # Resolve per-app so the same activation loop handles both.
+            $privateAppDir = "$toolsetdir\private\apps\$($appEntry.name)"
+            $appDir = if (Test-Path $privateAppDir -ErrorAction SilentlyContinue) {
+                $privateAppDir
+            } else {
+                "$scoopdir\apps\$($appEntry.name)"
+            }
             $verDir     = "$appDir\$($appEntry.version)"
-            # Private apps without an explicit version are stored as '?'.  Scoop reset does
-            # not manage them so the toolset must create the current\ junction itself.
-            # Detect the highest non-stale versioned subdir as the junction target.
+            # Apps without an explicit version: detect the highest non-stale versioned subdir.
+            # Private apps are not managed by scoop reset, so the toolset must create
+            # current\ itself.  Public apps with version '?' are handled the same way.
             if ($appEntry.version -eq '?') {
                 $detected = Get-ChildItem $appDir -Directory -ErrorAction SilentlyContinue |
                     Where-Object { $_.Name -ne 'current' -and $_.Name -notlike '*-toBeDeleted' } |
@@ -318,7 +325,10 @@ function Invoke-Activate {
             foreach ($pair in $appEntry.shortcuts) {
                 $exeRel      = $pair[0]
                 $displayName = $pair[1]
-                $exeFull     = "$scoopdir\apps\$($appEntry.name)\current\$exeRel"
+                $privBase    = "$toolsetdir\private\apps\$($appEntry.name)"
+                $appBase     = if (Test-Path $privBase -ErrorAction SilentlyContinue) { $privBase } `
+                               else { "$scoopdir\apps\$($appEntry.name)" }
+                $exeFull     = "$appBase\current\$exeRel"
                 $lnkPath     = "$startMenuScoop\$displayName.lnk"
                 if (-not (Test-Path $exeFull -ErrorAction SilentlyContinue)) {
                     Write-Warning "Shortcut target not found, skipping: $exeFull"
@@ -457,10 +467,40 @@ function Add-ZipType {
     }
 }
 
+function Get-ZipStripPrefix {
+    # Returns a hashtable { Prefix; HasVersion } describing the common single-directory
+    # prefix to strip from zip entry names before extraction.
+    # Recurses while there is exactly one top-level directory that contains all entries,
+    # stopping when multiple items exist at a level OR when the single item's name equals
+    # StopAtVersion (meaning the version subdir is already present in the zip).
+    # HasVersion=$true means the version directory was found inside the zip (caller should
+    # extract to appname\ only); $false means content is flat and version dir must be created.
+    # Normalized: internal flag - callers must not set this.
+    param([string[]]$Names, [string]$StopAtVersion = '', [switch]$Normalized)
+    # Normalize to forward slashes once at the top level.
+    # Compress-Archive on Windows stores entries with backslash separators.
+    if (-not $Normalized) {
+        $Names = @($Names | ForEach-Object { $_ -replace '\\', '/' })
+    }
+    $tops = @($Names |
+        ForEach-Object { ($_ -split '/')[0] } |
+        Where-Object   { $_ -ne '' } |
+        Sort-Object -Unique)
+    if ($tops.Count -ne 1) { return @{ Prefix = ''; HasVersion = $false } }
+    $top = $tops[0]
+    if ($StopAtVersion -and $top -eq $StopAtVersion) { return @{ Prefix = ''; HasVersion = $true } }
+    $inner = @($Names | Where-Object { $_ -like "$top/*" -and $_ -ne "$top/" })
+    if ($inner.Count -eq 0) { return @{ Prefix = ''; HasVersion = $false } }
+    $innerNames = @($inner | ForEach-Object { $_.Substring($top.Length + 1) })
+    $sub = Get-ZipStripPrefix $innerNames $StopAtVersion -Normalized
+    return @{ Prefix = "$top/" + $sub.Prefix; HasVersion = $sub.HasVersion }
+}
+
 function Expand-ZipWithProgress {
     # Replaces Expand-Archive. Extracts a zip entry-by-entry using ZipFile so we
     # can display a live progress bar. Overwrites existing files.
-    param([string]$ZipPath, [string]$DestinationPath)
+    # StripPrefix: leading path prefix to remove from each entry before computing destination.
+    param([string]$ZipPath, [string]$DestinationPath, [string]$StripPrefix = '')
     Add-ZipType
     $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
@@ -473,7 +513,13 @@ function Expand-ZipWithProgress {
             $filled = if ($pct -ge 20) { '=' * 20 } else { '=' * $pct + '>' + ' ' * (19 - $pct) }
             Write-Host ("`r    Extracting... $i / $total  [$filled]") -NoNewline
 
-            $destRelative = $entry.FullName -replace '/', '\'
+            $name = $entry.FullName -replace '\\', '/'
+            if ($StripPrefix -and $name.StartsWith($StripPrefix)) {
+                $name = $name.Substring($StripPrefix.Length)
+            }
+            if ($name -eq '' -or $name -eq '/') { continue }
+
+            $destRelative = $name -replace '/', '\'
             $destFile     = Join-Path $DestinationPath $destRelative
 
             if ($entry.Name -eq '') {
@@ -771,7 +817,7 @@ function Get-ScoopVersionFromBinary {
 function Get-LocalAppVersions {
     <#
     .SYNOPSIS
-        Returns a hashtable of installed app name -> version for all apps under scoop\apps\.
+        Returns a hashtable of installed app name -> version for all apps under scoop\apps\ and private\apps\.
     .DESCRIPTION
         Always checks versioned subdirectories first (highest name, descending sort),
         so that a partially-updated installation -- where a new version directory has been
@@ -796,47 +842,52 @@ function Get-LocalAppVersions {
     #>
     param([string]$toolsetdir)
     $result = @{}
-    $appsDir = "$toolsetdir\scoop\apps"
-    if (-not (Test-Path $appsDir)) { return $result }
-    Get-ChildItem $appsDir -Directory | ForEach-Object {
-        $appDir  = $_.FullName
-        $appName = $_.Name
-        # Prefer the highest versioned dir over current\ (which may still point to the
-        # previous version while the new version dir is already fully extracted).
-        $vDir = Get-ChildItem $appDir -Directory |
-                    Where-Object { $_.Name -ne 'current' } |
-                    Sort-Object Name -Descending |
-                    Select-Object -First 1
-        if ($vDir) {
-            $mPath = "$($vDir.FullName)\manifest.json"
-            if (Test-Path $mPath) {
-                try { $result[$appName] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
-            } else {
-                # manifest.json absent -- scoop itself does not always ship one.
-                # The versioned dir name IS the version string (scoop convention).
-                $result[$appName] = $vDir.Name
-            }
-        } else {
-            # No versioned dir -- check current\ (may be a junction or a real dir).
-            $currentDir = "$appDir\current"
-            if (-not (Test-Path $currentDir -ErrorAction SilentlyContinue)) { return }
-            $mPath = "$currentDir\manifest.json"
-            if (Test-Path $mPath) {
-                try { $result[$appName] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
-            } else {
-                # current\ is a real dir with no manifest.json (e.g. manually-renamed
-                # versioned dir, or a pre-existing scoop installation).
-                $isJunction = (Get-Item $currentDir -ErrorAction SilentlyContinue).Attributes `
-                    -band [System.IO.FileAttributes]::ReparsePoint
-                if (-not $isJunction) {
-                    # Try to ask the binary directly (works for scoop).
-                    $ver = Get-ScoopVersionFromBinary "$currentDir\bin\scoop.ps1"
-                    $result[$appName] = if ($ver) { $ver } else { '?' }
+    # Scan both scoop\apps (public) and private\apps (private) directories.
+    # scoop\apps is scanned first; private\apps entries are skipped if a name already exists.
+    $scanDirs = @("$toolsetdir\scoop\apps", "$toolsetdir\private\apps")
+    foreach ($appsDir in $scanDirs) {
+        if (-not (Test-Path $appsDir)) { continue }
+        Get-ChildItem $appsDir -Directory | ForEach-Object {
+            $appDir  = $_.FullName
+            $appName = $_.Name
+            if ($result.ContainsKey($appName)) { return }   # scoop\apps wins on name collision
+            # Prefer the highest versioned dir over current\ (which may still point to the
+            # previous version while the new version dir is already fully extracted).
+            $vDir = Get-ChildItem $appDir -Directory |
+                        Where-Object { $_.Name -ne 'current' } |
+                        Sort-Object Name -Descending |
+                        Select-Object -First 1
+            if ($vDir) {
+                $mPath = "$($vDir.FullName)\manifest.json"
+                if (Test-Path $mPath) {
+                    try { $result[$appName] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
                 } else {
-                    # Junction with unreadable manifest (broken target).  Record '?' so
-                    # the integrity check decides whether a reinstall is needed, rather
-                    # than silently omitting the app and showing it as [^] ToInstall.
-                    $result[$appName] = '?'
+                    # manifest.json absent -- scoop itself does not always ship one.
+                    # The versioned dir name IS the version string (scoop convention).
+                    $result[$appName] = $vDir.Name
+                }
+            } else {
+                # No versioned dir -- check current\ (may be a junction or a real dir).
+                $currentDir = "$appDir\current"
+                if (-not (Test-Path $currentDir -ErrorAction SilentlyContinue)) { return }
+                $mPath = "$currentDir\manifest.json"
+                if (Test-Path $mPath) {
+                    try { $result[$appName] = (Get-Content $mPath -Raw | ConvertFrom-Json).version } catch { }
+                } else {
+                    # current\ is a real dir with no manifest.json (e.g. manually-renamed
+                    # versioned dir, or a pre-existing scoop installation).
+                    $isJunction = (Get-Item $currentDir -ErrorAction SilentlyContinue).Attributes `
+                        -band [System.IO.FileAttributes]::ReparsePoint
+                    if (-not $isJunction) {
+                        # Try to ask the binary directly (works for scoop).
+                        $ver = Get-ScoopVersionFromBinary "$currentDir\bin\scoop.ps1"
+                        $result[$appName] = if ($ver) { $ver } else { '?' }
+                    } else {
+                        # Junction with unreadable manifest (broken target).  Record '?' so
+                        # the integrity check decides whether a reinstall is needed, rather
+                        # than silently omitting the app and showing it as [+] ToInstall.
+                        $result[$appName] = '?'
+                    }
                 }
             }
         }
@@ -1120,8 +1171,11 @@ function Test-AppIntegrity {
     param([object]$App, [string]$toolsetdir)
     # Graceful degradation: old manifests without metadata are treated as healthy
     if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) { return $true }
-    # Check versioned dir first (real scoop layout), fall back to current\ (test/legacy layout)
+    # Check versioned dir: scoop\apps first, then private\apps, then current\ fallback.
     $versionDir = "$toolsetdir\scoop\apps\$($App.name)\$($App.version)"
+    if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
+        $versionDir = "$toolsetdir\private\apps\$($App.name)\$($App.version)"
+    }
     if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
         $versionDir = "$toolsetdir\scoop\apps\$($App.name)\current"
     }
@@ -1261,14 +1315,14 @@ function Remove-StaleVersionDirs {
     .PARAMETER toolsetdir
         Root of the toolset installation (contains scoop\).
     .PARAMETER AppName
-        Scoop app name (directory under scoop\apps\).
+        App name (directory under scoop\apps\ or private\apps\).
     .PARAMETER KeepVersion
         Version string to preserve; all other versioned dirs are removed.
     .OUTPUTS
         None
     #>
-    param([string]$toolsetdir, [string]$AppName, [string]$KeepVersion)
-    $appDir = "$toolsetdir\scoop\apps\$AppName"
+    param([string]$toolsetdir, [string]$AppName, [string]$KeepVersion, [string]$AppsDir = "")
+    $appDir = if ($AppsDir) { "$AppsDir\$AppName" } else { "$toolsetdir\scoop\apps\$AppName" }
     if (-not (Test-Path $appDir -ErrorAction SilentlyContinue)) { return }
     Get-ChildItem $appDir -Directory -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ne $KeepVersion -and $_.Name -ne 'current' } |
@@ -1356,8 +1410,8 @@ function Get-AppDiff {
 function Show-AppStatus {
     param($Diff, $LocalVersions)
     Write-Host ""
-    foreach ($a in $Diff.ToInstall) { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
-    foreach ($a in $Diff.ToUpdate)  { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
+    foreach ($a in $Diff.ToInstall) { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
+    foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
     foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair" -ForegroundColor Yellow }
     foreach ($a in $Diff.UpToDate) {
         if ($LocalVersions[$a.name] -eq '?') {
@@ -1414,8 +1468,14 @@ function Invoke-PatchBuildPaths {
 }
 
 function Install-Pack {
-    param([string]$PackPath, [string]$toolsetdir)
-    $appsDir = "$toolsetdir\scoop\apps"
+    param(
+        [string]$PackPath,
+        [string]$toolsetdir,
+        [string]$DestAppsDir = "",
+        [string]$AppName     = "",
+        [string]$AppVersion  = ""
+    )
+    $appsDir = if ($DestAppsDir) { $DestAppsDir } else { "$toolsetdir\scoop\apps" }
     New-Item -ItemType Directory -Force -Path $appsDir | Out-Null
 
     # Pack root contains top-level app dirs (e.g. git\, vscode\); each holds one or more
@@ -1428,6 +1488,20 @@ function Install-Pack {
     if (Test-Path $PackPath -PathType Container) {
         # Pre-extracted pack directory - top-level dirs are app names, same as zip root
         Copy-Item "$PackPath\*" $appsDir -Recurse -Force
+    } elseif ($AppName -and $AppVersion) {
+        # Private pack: strip any single-root wrapper directory, then place content under
+        # appname\version\ (creating the version dir if the zip does not already contain it).
+        Add-ZipType
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($PackPath)
+        $names = @($zip.Entries | ForEach-Object { $_.FullName })
+        $zip.Dispose()
+        $info    = Get-ZipStripPrefix $names $AppVersion
+        $destDir = if ($info.HasVersion) {
+            Join-Path $appsDir $AppName
+        } else {
+            Join-Path $appsDir "$AppName\$AppVersion"
+        }
+        Expand-ZipWithProgress -ZipPath $PackPath -DestinationPath $destDir -StripPrefix $info.Prefix
     } else {
         Expand-ZipWithProgress -ZipPath $PackPath -DestinationPath $appsDir
     }
@@ -1481,11 +1555,12 @@ if ($Command -eq "update") {
     $removed   = $diff.Removed
     Show-AppStatus -Diff $diff -LocalVersions $localVersions
 
-    # Removed app handling - split public orphans from private apps (marker: .toolset-private).
+    # Removed app handling - split public orphans from private apps.
+    # Private apps live under private\apps\; their presence there identifies them as private.
     # Private apps are protected from -Clean: only -CleanPrivate removes them, so a temporarily
     # unreachable L:\ does not cause accidental deletion.
-    $removedPublic  = @($removed | Where-Object { -not (Test-Path "$toolsetdir\scoop\apps\$_\.toolset-private") })
-    $removedPrivate = @($removed | Where-Object {       Test-Path "$toolsetdir\scoop\apps\$_\.toolset-private"  })
+    $removedPublic  = @($removed | Where-Object { -not (Test-Path "$toolsetdir\private\apps\$_") })
+    $removedPrivate = @($removed | Where-Object {       Test-Path "$toolsetdir\private\apps\$_"  })
 
     if ($removedPublic.Count -gt 0) {
         if ($Clean) {
@@ -1509,7 +1584,7 @@ if ($Command -eq "update") {
     if ($removedPrivate.Count -gt 0) {
         if ($CleanPrivate) {
             foreach ($name in $removedPrivate) {
-                Remove-DirSafe "$toolsetdir\scoop\apps\$name"
+                Remove-DirSafe "$toolsetdir\private\apps\$name"
                 Write-Host "  Removed private app $name" -ForegroundColor DarkGray
             }
         } else {
@@ -1537,18 +1612,19 @@ if ($Command -eq "update") {
             Write-Host "  $($app.pack.PadRight(30))" -ForegroundColor Yellow -NoNewline
             try {
                 $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -LDrivePath $LDrivePath -ArchivesDir $archivesDir -NoInteraction $NoInteraction
-                Install-Pack -PackPath $packPath -toolsetdir $toolsetdir
-                # Mark private apps (local-path packUrl) so they are protected from -Clean removal
-                # when L:\ is temporarily unreachable.  The marker survives until the app dir is removed.
+                # Private apps (local-path packUrl) install to private\apps\ so scoop reset *
+                # never touches them and their versioned-dir structure is preserved.
                 $isPrivatePack = $app.PSObject.Properties['packUrl'] -and $app.packUrl -and
                                  ($app.packUrl -match '^[A-Za-z]:\\' -or $app.packUrl -match '^\\\\')
-                if ($isPrivatePack) {
-                    New-Item -ItemType File -Force -Path "$toolsetdir\scoop\apps\$($app.name)\.toolset-private" | Out-Null
-                }
+                $destAppsDir = if ($isPrivatePack) { "$toolsetdir\private\apps" } else { "" }
+                $instName    = if ($isPrivatePack) { $app.name }    else { "" }
+                $instVersion = if ($isPrivatePack) { $app.version } else { "" }
+                Install-Pack -PackPath $packPath -toolsetdir $toolsetdir -DestAppsDir $destAppsDir `
+                    -AppName $instName -AppVersion $instVersion
                 $sw.Stop()
                 $elapsed = [math]::Round($sw.Elapsed.TotalSeconds, 1)
                 if ($packPath.StartsWith($env:TEMP)) { Remove-Item $packPath -Force -ErrorAction SilentlyContinue }
-                Remove-StaleVersionDirs -toolsetdir $toolsetdir -AppName $app.name -KeepVersion $app.version
+                Remove-StaleVersionDirs -toolsetdir $toolsetdir -AppName $app.name -KeepVersion $app.version -AppsDir $destAppsDir
                 # Purge older cached zips for this app from archives (keep only the current version)
                 if (Test-Path $archivesDir) {
                     Get-ChildItem $archivesDir -Filter "$($app.name)-*.zip" -ErrorAction SilentlyContinue |
