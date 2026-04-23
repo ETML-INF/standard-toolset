@@ -854,7 +854,7 @@ function Get-LocalAppVersions {
             # Prefer the highest versioned dir over current\ (which may still point to the
             # previous version while the new version dir is already fully extracted).
             $vDir = Get-ChildItem $appDir -Directory |
-                        Where-Object { $_.Name -ne 'current' } |
+                        Where-Object { $_.Name -ne 'current' -and $_.Name -match '^\d' } |
                         Sort-Object Name -Descending |
                         Select-Object -First 1
             if ($vDir) {
@@ -1121,15 +1121,22 @@ function Get-FilesNoJunction {
     .PARAMETER RootPath
         Internal -- root of the enumeration used to compute relative paths.
         Callers should omit this; it is set on the first call automatically.
+    .PARAMETER ExcludeFilePaths
+        Optional list of relative file paths (e.g. "rclone.conf.original") to skip.
+        Used to suppress scoop persist backup files (<entry>.original) that scoop reset
+        creates for file persist entries.  Comparison is case-insensitive.
     .OUTPUTS
-        System.IO.FileInfo objects for every file that is not inside a reparse point
-        or an excluded subtree.
+        System.IO.FileInfo objects for every file that is not inside a reparse point,
+        an excluded subtree, or an excluded file path.
     #>
-    param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '')
+    param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '', [string[]]$ExcludeFilePaths = @())
     if ($RootPath -eq '') { $RootPath = $Path }
     Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
-        if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-            # Stop here -- do not traverse into junctions or symlinks.
+        if (($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or $_.LinkType) {
+            # Stop here -- do not follow any link type (Junction, SymbolicLink, HardLink).
+            # All links are scoop activation artifacts; zip packs contain only flat files.
+            # LinkType check is belt-and-suspenders for cases where the ReparsePoint
+            # attribute flag is not reported (e.g. certain Windows builds or network paths).
         } elseif ($_.PSIsContainer) {
             # Check exclusion list (relative path from root, case-insensitive).
             $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
@@ -1139,9 +1146,16 @@ function Get-FilesNoJunction {
                     $excluded = $true; break
                 }
             }
-            if (-not $excluded) { Get-FilesNoJunction $_.FullName $ExcludePaths $RootPath }
+            if (-not $excluded) { Get-FilesNoJunction $_.FullName $ExcludePaths $RootPath $ExcludeFilePaths }
         } else {
-            $_
+            if ($ExcludeFilePaths.Count -gt 0) {
+                $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
+                $skip = $false
+                foreach ($ef in $ExcludeFilePaths) { if ($rel -like $ef) { $skip = $true; break } }
+                if (-not $skip) { $_ }
+            } else {
+                $_
+            }
         }
     }
 }
@@ -1183,7 +1197,29 @@ function Test-AppIntegrity {
     $excludePaths = if ($App.PSObject.Properties['integrityExcludePaths']) {
         @($App.integrityExcludePaths)
     } else { @() }
-    $files = @(Get-FilesNoJunction $versionDir $excludePaths)
+    # Parse the scoop app manifest.json to exclude persist entries and their .original
+    # backups.  scoop reset replaces file persist entries with symlinks (backing up the
+    # original as <entry>.original) and dir persist entries with junctions.  Excluding
+    # both the entry paths and their .original suffixes prevents false integrity failures.
+    # Best-effort: if manifest is absent (private apps) fall back to reparse detection only.
+    $persistDirExcludes  = @()
+    $persistFileExcludes = @()
+    $scoopMfst = "$versionDir\manifest.json"
+    if (Test-Path $scoopMfst -ErrorAction SilentlyContinue) {
+        try {
+            $sm = Get-Content $scoopMfst -Raw | ConvertFrom-Json
+            if ($sm.PSObject.Properties['persist']) {
+                @($sm.persist) | ForEach-Object {
+                    if ($_ -is [string]) {
+                        $entry = $_.Replace('/', '\').TrimStart('\')
+                        $persistDirExcludes  += $entry
+                        $persistFileExcludes += $entry
+                    }
+                }
+            }
+        } catch { }
+    }
+    $files = @(Get-FilesNoJunction -Path $versionDir -ExcludePaths ($excludePaths + $persistDirExcludes) -ExcludeFilePaths $persistFileExcludes)
     if ($files.Count -ne [int]$App.fileCount) { return $false }
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     return $size -eq [long]$App.totalSize

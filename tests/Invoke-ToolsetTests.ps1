@@ -1148,6 +1148,60 @@ Assert "[50] no repair on second run"        ($out50b -notmatch "\[!\]")
 Assert "[50] FAILED not in second run"       ($out50b -notmatch "FAILED")
 Remove-TestDir $d50, $ps50
 
+Write-Host "[51] Integrity -- scoop persist file/dir entries do not trigger repair after scoop reset" -ForegroundColor Cyan
+# Scenario: the pack ships rclone.conf (0-byte placeholder) and manifest.json declares
+# persist entries.  scoop reset renames rclone.conf -> rclone.conf.original (0-byte,
+# kept in count) and creates rclone.conf as a hardlink to persist (not a reparse point,
+# so not caught by junction check -- must be excluded via persist entry list).
+# A dir persist entry (cache\) is replaced by a junction (reparse point, excluded by
+# existing check AND by persist dir exclusion).
+# fileCount = 2 (manifest.json + rclone.conf placeholder).
+# After reset: manifest.json + rclone.conf.original = 2, same total size -> matches.
+# rclone.conf hardlink and cache\ junction excluded via persist entries -> no false repair.
+$d51 = "C:\tmp\s51d"; $ps51 = "C:\tmp\s51p"
+New-Item -Force -ItemType Directory $ps51 | Out-Null
+$tmp51 = Join-Path $env:TEMP "fakepck51-$(Get-Random)"
+$vd51  = "$tmp51\app1\1.0.0"
+New-Item -Force -ItemType Directory $vd51 | Out-Null
+# manifest.json with file persist (rclone.conf) and dir persist (cache).
+@{ version = "1.0.0"; persist = @("rclone.conf", "cache") } | ConvertTo-Json -Depth 3 |
+    Set-Content "$vd51\manifest.json" -Encoding UTF8
+# rclone.conf: 0-byte placeholder shipped in pack (will become .original after scoop reset).
+Set-Content "$vd51\rclone.conf" "" -Encoding UTF8
+$mSize51 = (Get-Item "$vd51\manifest.json").Length
+$rSize51 = (Get-Item "$vd51\rclone.conf").Length
+$fc51 = 2; $ts51 = [long]($mSize51 + $rSize51)
+Compress-Archive -Path "$tmp51\app1" -DestinationPath "$ps51\app1-1.0.0.zip" -Force
+@{ version = "99.0.0"; built = (Get-Date -Format "o")
+   apps = @([ordered]@{ name = "app1"; version = "1.0.0"; pack = "app1-1.0.0.zip"
+                         fileCount = $fc51; totalSize = $ts51 }) } |
+    ConvertTo-Json -Depth 5 | Set-Content "$ps51\release-manifest.json" -Encoding UTF8
+Remove-Item $tmp51 -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Force -ItemType Directory $d51 | Out-Null
+pwsh -File $toolkit update -Path $d51 `
+    -ManifestSource "$ps51\release-manifest.json" -PackSource $ps51 -NoInteraction
+# Simulate scoop reset:
+#   file persist: rename placeholder to .original, create hardlink (regular file here)
+#   dir  persist: add junction to a persist directory with user files
+$inst51 = "$d51\scoop\apps\app1\1.0.0"
+if (-not (Test-Path $inst51)) { $inst51 = "$d51\scoop\apps\app1\current" }
+Rename-Item "$inst51\rclone.conf" "$inst51\rclone.conf.original"
+Set-Content "$inst51\rclone.conf" "" -Encoding UTF8      # simulates hardlink to persist
+$persist51 = "C:\tmp\s51persist"
+New-Item -Force -ItemType Directory $persist51 | Out-Null
+Set-Content "$persist51\cached.dat" "cache data" -Encoding UTF8
+New-Item -ItemType Junction -Path "$inst51\cache" -Value $persist51 | Out-Null
+# Remove pack -- a repair attempt would fail (signals false integrity failure).
+Remove-Item "$ps51\app1-1.0.0.zip" -Force -ErrorAction SilentlyContinue
+$out51 = pwsh -File $toolkit update -Path $d51 `
+    -ManifestSource "$ps51\release-manifest.json" -PackSource $ps51 -NoInteraction 2>&1
+$ec51  = $LASTEXITCODE
+Assert "[51] exit 0 (persist entries ignored)"           ($ec51 -eq 0)
+Assert "[51] [=] shown (integrity passes)"               ($out51 -match "\[=\]")
+Assert "[51] no FAILED in output"                        ($out51 -notmatch "FAILED")
+Assert "[51] persist data untouched"                     (Test-Path "$persist51\cached.dat")
+Remove-TestDir $d51, $ps51, $persist51
+
 if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red
