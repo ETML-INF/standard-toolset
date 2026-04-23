@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.4](https://github.com/ETML-INF/standard-toolset/compare/v2.3.3...v2.3.4) (2026-04-22)
+
+
+### Bug Fixes
+
+* **npm,icacls:** patch npm correctly and avoid stopping on cacls error ([ff4d923](https://github.com/ETML-INF/standard-toolset/commit/ff4d9235f26230b91ac31f53d88d00e5046647e7))
+
 ## [2.3.3](https://github.com/ETML-INF/standard-toolset/compare/v2.3.2...v2.3.3) (2026-04-20)
 
 
