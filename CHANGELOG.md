@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.6](https://github.com/ETML-INF/standard-toolset/compare/v2.3.5...v2.3.6) (2026-04-23)
+
+
+### Bug Fixes
+
+* **reinstall:** completely reinstall on corrupted app ([4244fae](https://github.com/ETML-INF/standard-toolset/commit/4244faeaf9697e47db72e3fcb43e3d0078c854b1))
+
 ## [2.3.5](https://github.com/ETML-INF/standard-toolset/compare/v2.3.4...v2.3.5) (2026-04-23)
 
 
