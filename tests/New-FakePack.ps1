@@ -56,12 +56,12 @@ foreach ($app in $Apps) {
     $version  = $app.Version
     $packName = "$name-$version.zip"
 
-    # Build temp dir: <name>\current\manifest.json
-    # Pack zip root is <name>\ so extraction to scoop\apps\ gives correct layout
+    # Build temp dir: <name>\<version>\manifest.json
+    # Real packs use versioned subdirectories; activation creates the current\ junction.
     $tmpDir = Join-Path $env:TEMP "fakepck-$name-$(Get-Random)"
-    $curDir = Join-Path $tmpDir "$name\current"
-    $null = New-Item -ItemType Directory -Force -Path $curDir
-    @{ version = $version } | ConvertTo-Json | Set-Content (Join-Path $curDir "manifest.json") -Encoding UTF8
+    $verDir = Join-Path $tmpDir "$name\$version"
+    $null = New-Item -ItemType Directory -Force -Path $verDir
+    @{ version = $version } | ConvertTo-Json | Set-Content (Join-Path $verDir "manifest.json") -Encoding UTF8
 
     # ExcludePaths mirrors integrityExcludePaths in the manifest so counts are consistent.
     $excludePaths = [string[]]@(if ($app.ContainsKey('IntegrityExcludePaths')) { $app.IntegrityExcludePaths })

@@ -1619,6 +1619,14 @@ if ($Command -eq "update") {
                 $destAppsDir = if ($isPrivatePack) { "$toolsetdir\private\apps" } else { "" }
                 $instName    = if ($isPrivatePack) { $app.name }    else { "" }
                 $instVersion = if ($isPrivatePack) { $app.version } else { "" }
+                # For repairs (same-version reinstall) remove the existing versioned directory
+                # before re-extracting so extra files do not survive and cause a perpetual
+                # integrity failure on the next run.
+                if ($toRepair -and ($toRepair | Where-Object { $_.name -eq $app.name })) {
+                    $repairAppsBase = if ($destAppsDir) { $destAppsDir } else { "$toolsetdir\scoop\apps" }
+                    $repairVerDir   = "$repairAppsBase\$($app.name)\$($app.version)"
+                    Remove-DirSafe $repairVerDir
+                }
                 Install-Pack -PackPath $packPath -toolsetdir $toolsetdir -DestAppsDir $destAppsDir `
                     -AppName $instName -AppVersion $instVersion
                 $sw.Stop()

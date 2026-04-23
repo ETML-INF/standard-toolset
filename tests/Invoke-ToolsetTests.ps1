@@ -286,7 +286,7 @@ Remove-TestDir $d21
 Write-Host "[22] Integrity — missing file triggers repair" -ForegroundColor Cyan
 $d22 = "C:\tmp\s22d"; $ps22 = "C:\tmp\s22p"
 Install-FreshApp -PackDir $ps22 -InstallDir $d22
-# Corrupt install: remove manifest.json from current\ dir (that's where fake pack puts files)
+# Corrupt install: remove manifest.json via current\ junction (points to the versioned dir)
 Remove-Item "$d22\scoop\apps\app1\current\manifest.json" -Force -ErrorAction SilentlyContinue
 # Re-run — integrity check should detect missing file and repair
 pwsh -File $toolkit update -Path $d22 -ManifestSource "$ps22\release-manifest.json" -PackSource $ps22 -NoInteraction
@@ -1120,6 +1120,33 @@ Assert "[49] subdir preserved"                         (Test-Path "$d49\private\
 Assert "[49] current junction points to version dir"   (Test-Path "$d49\private\apps\myapp\current")
 Remove-TestDir $d49, $ps49, $ldrive49
 
+
+Write-Host "[50] Integrity repair removes extra files (no infinite reinstall loop)" -ForegroundColor Cyan
+# Scenario: an extra file is injected into the versioned dir after install.
+# The integrity check detects fileCount mismatch and triggers repair.
+# The repair must remove the versioned dir before re-extracting so the extra
+# file is gone and a second run finds the app healthy (no infinite loop).
+$d50 = "C:\tmp\s50d"; $ps50 = "C:\tmp\s50p"
+Install-FreshApp -PackDir $ps50 -InstallDir $d50
+# Inject an extra file into the versioned dir (not current\ junction, the real dir).
+$vdir50 = "$d50\scoop\apps\app1\1.0.0"
+if (-not (Test-Path $vdir50)) { $vdir50 = "$d50\scoop\apps\app1\current" }
+Set-Content "$vdir50\extra-intruder.txt" "should be removed by repair" -Encoding UTF8
+# First repair run -- integrity fails, repair should clean and reinstall.
+$out50a = pwsh -File $toolkit update -Path $d50 -ManifestSource "$ps50\release-manifest.json" -PackSource $ps50 -NoInteraction 2>&1
+$ec50a = $LASTEXITCODE
+Assert "[50] first run exits 0"              ($ec50a -eq 0)
+Assert "[50] repair shown in output"         ($out50a -match "\[!\]")
+Assert "[50] extra file removed after repair" (-not (Test-Path "$d50\scoop\apps\app1\1.0.0\extra-intruder.txt") -and -not (Test-Path "$d50\scoop\apps\app1\current\extra-intruder.txt"))
+# Second run -- must see app as healthy (no re-download, no [!] shown).
+# Remove the pack so a re-download attempt would fail.
+Remove-Item "$ps50\app1-1.0.0.zip" -Force -ErrorAction SilentlyContinue
+$out50b = pwsh -File $toolkit update -Path $d50 -ManifestSource "$ps50\release-manifest.json" -PackSource $ps50 -NoInteraction 2>&1
+$ec50b = $LASTEXITCODE
+Assert "[50] second run exits 0 (healthy)"   ($ec50b -eq 0)
+Assert "[50] no repair on second run"        ($out50b -notmatch "\[!\]")
+Assert "[50] FAILED not in second run"       ($out50b -notmatch "FAILED")
+Remove-TestDir $d50, $ps50
 
 if ($script:fail -gt 0) {
     Write-Host ""
