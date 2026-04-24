@@ -9,7 +9,8 @@ param(
     [string]$ManifestSource = "",
     [string]$PackSource = "",
     [string]$LDrivePath = "L:\toolset",
-    [string]$LogFile = ""
+    [string]$LogFile = "",
+    [double]$IntegrityDelta = 0.25
 )
 
 Set-StrictMode -Version Latest
@@ -969,9 +970,14 @@ function Get-Pack {
     # Archives cache hit: return the cached zip directly (no TEMP copy needed)
     if (-not [string]::IsNullOrEmpty($ArchivesDir)) {
         $cachedPath = Join-Path $ArchivesDir $packName
-        if (Test-Path $cachedPath) {
-            Write-Host " [cache]" -ForegroundColor DarkGray
-            return $cachedPath
+        if (Test-Path $cachedPath ) {
+	    # it may happen that an archive has wrong permissions, this shouldn't stop process
+	    $readable = try { [System.IO.File]::OpenRead($cachedPath).Close(); $true } catch { $false };
+	    if($readable)
+	    {
+		Write-Host " [cache]" -ForegroundColor DarkGray
+		return $cachedPath
+	    }
         }
     }
 
@@ -1179,10 +1185,12 @@ function Test-AppIntegrity {
         App entry object from the release manifest (must have name, version, fileCount, totalSize).
     .PARAMETER toolsetdir
         Root of the toolset installation (contains scoop\).
+    .PARAMETER Delta
+        Allowed relative deviation from expected fileCount and totalSize (default: $IntegrityDelta).
     .OUTPUTS
         Boolean
     #>
-    param([object]$App, [string]$toolsetdir)
+    param([object]$App, [string]$toolsetdir, [double]$Delta = 0.25)
     # Graceful degradation: old manifests without metadata are treated as healthy
     if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) { return $true }
     # Check versioned dir: scoop\apps first, then private\apps, then current\ fallback.
@@ -1220,9 +1228,16 @@ function Test-AppIntegrity {
         } catch { }
     }
     $files = @(Get-FilesNoJunction -Path $versionDir -ExcludePaths ($excludePaths + $persistDirExcludes) -ExcludeFilePaths $persistFileExcludes)
-    if ($files.Count -ne [int]$App.fileCount) { return $false }
+    $expectedCount = [int]$App.fileCount
+    if ($expectedCount -gt 0) {
+        if (([Math]::Abs($files.Count - $expectedCount) / [double]$expectedCount) -gt $Delta) { return $false }
+    } elseif ($files.Count -ne 0) { return $false }
     $size = ($files | Measure-Object -Property Length -Sum).Sum
-    return $size -eq [long]$App.totalSize
+    $expectedSize = [long]$App.totalSize
+    if ($expectedSize -gt 0) {
+        return ([Math]::Abs($size - $expectedSize) / [double]$expectedSize) -le $Delta
+    }
+    return ($size -eq 0)
 }
 
 function Remove-Junction {
@@ -1409,7 +1424,7 @@ function Get-AppDiff {
             if ($isTerminal) {
                 [Console]::Write("`r  $($app.name)...                              ")
             }
-            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir
+            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir -Delta $IntegrityDelta
         }
         if ($isTerminal) {
             [Console]::Write("`r" + (' ' * 55) + "`r")
@@ -1733,6 +1748,26 @@ if ($Command -eq "update") {
     $toolsetdir = Find-ToolsetDir -StartPath $Path -NoInteraction $NoInteraction
     try {
         Invoke-Activate -toolsetdir $toolsetdir -NoInteraction $NoInteraction
+        $tsVersion = ''
+        $mfstPath = "$toolsetdir\release-manifest.json"
+        if (Test-Path $mfstPath -ErrorAction SilentlyContinue) {
+            try { $tsVersion = (Get-Content $mfstPath -Raw | ConvertFrom-Json).version } catch {}
+        }
+        $vLabel = if ($tsVersion) { "version $tsVersion  ready" } else { "ready" }
+        Write-Host ""
+        Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
+        Write-Host "  |   _____ ___   ___  _     ____  _____ ___ |" -ForegroundColor Cyan
+        Write-Host "  |  |_   _/ _ \ / _ \| |   / ___|| ____|_  ||" -ForegroundColor Cyan
+        Write-Host "  |    | || | | | | | | |   \___ \|  _|   | ||" -ForegroundColor Cyan
+        Write-Host "  |    | || |_| | |_| | |___ ___) | |___  | ||" -ForegroundColor Cyan
+        Write-Host "  |    |_| \___/ \___/|_____|____/|_____| |_||" -ForegroundColor Cyan
+        Write-Host "  |                                           |" -ForegroundColor Cyan
+        Write-Host "  |  $($vLabel.PadRight(41))|" -ForegroundColor Cyan
+        Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
+        Write-Host ""
+        if (-not $NoInteraction) {
+            Read-Host "Press Enter to close"
+        }
     } catch {
         Write-Warning "Activation failed: $_"
         Write-Host "Broken install detected  - switching to update mode..." -ForegroundColor Yellow
