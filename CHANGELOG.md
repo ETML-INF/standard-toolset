@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.0](https://github.com/ETML-INF/standard-toolset/compare/v2.3.7...v2.4.0) (2026-04-24)
+
+
+### Features
+
+* **done:** nice message ([6536c6b](https://github.com/ETML-INF/standard-toolset/commit/6536c6b9968b0d262858035089c1edc47b0fc5ec))
+
+
+### Bug Fixes
+
+* **bad cache:** use temp ([6536c6b](https://github.com/ETML-INF/standard-toolset/commit/6536c6b9968b0d262858035089c1edc47b0fc5ec))
+* **integrity:** allow delta ([6536c6b](https://github.com/ETML-INF/standard-toolset/commit/6536c6b9968b0d262858035089c1edc47b0fc5ec))
+
 ## [2.3.7](https://github.com/ETML-INF/standard-toolset/compare/v2.3.6...v2.3.7) (2026-04-23)
 
 
