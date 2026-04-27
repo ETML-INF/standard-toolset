@@ -10,7 +10,8 @@ param(
     [string]$PackSource = "",
     [string]$LDrivePath = "L:\toolset",
     [string]$LogFile = "",
-    [double]$IntegrityDelta = 0.25
+    [double]$IntegrityDeltaCount = 0.05,
+    [double]$IntegrityDeltaSize  = 0.10
 )
 
 Set-StrictMode -Version Latest
@@ -1169,7 +1170,7 @@ function Get-FilesNoJunction {
 function Test-AppIntegrity {
     <#
     .SYNOPSIS
-        Returns $true when the installed app directory matches the expected file count and total size.
+        Returns an integrity result with Ok, FileRatio, and SizeRatio for the installed app.
     .DESCRIPTION
         Compares the number of files and their combined uncompressed size against the
         fileCount and totalSize fields in the release manifest.  Files inside junction
@@ -1185,14 +1186,19 @@ function Test-AppIntegrity {
         App entry object from the release manifest (must have name, version, fileCount, totalSize).
     .PARAMETER toolsetdir
         Root of the toolset installation (contains scoop\).
-    .PARAMETER Delta
-        Allowed relative deviation from expected fileCount and totalSize (default: $IntegrityDelta).
+    .PARAMETER DeltaCount
+        Allowed relative deviation from expected fileCount (default 0.05 = 5%).
+    .PARAMETER DeltaSize
+        Allowed relative deviation from expected totalSize (default 0.10 = 10%).
     .OUTPUTS
-        Boolean
+        PSCustomObject with Ok (bool), FileRatio (0.0-1.0), SizeRatio (0.0-1.0).
+        Ratios express how close actual is to expected: 1.0 = perfect, 0.97 = 3% off.
     #>
-    param([object]$App, [string]$toolsetdir, [double]$Delta = 0.25)
+    param([object]$App, [string]$toolsetdir, [double]$DeltaCount = 0.05, [double]$DeltaSize = 0.10)
     # Graceful degradation: old manifests without metadata are treated as healthy
-    if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) { return $true }
+    if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) {
+        return [pscustomobject]@{ Ok = $true; FileRatio = 1.0; SizeRatio = 1.0 }
+    }
     # Check versioned dir: scoop\apps first, then private\apps, then current\ fallback.
     $versionDir = "$toolsetdir\scoop\apps\$($App.name)\$($App.version)"
     if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
@@ -1201,7 +1207,9 @@ function Test-AppIntegrity {
     if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
         $versionDir = "$toolsetdir\scoop\apps\$($App.name)\current"
     }
-    if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) { return $false }
+    if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ Ok = $false; FileRatio = 0.0; SizeRatio = 0.0 }
+    }
     $excludePaths = if ($App.PSObject.Properties['integrityExcludePaths']) {
         @($App.integrityExcludePaths)
     } else { @() }
@@ -1229,15 +1237,27 @@ function Test-AppIntegrity {
     }
     $files = @(Get-FilesNoJunction -Path $versionDir -ExcludePaths ($excludePaths + $persistDirExcludes) -ExcludeFilePaths $persistFileExcludes)
     $expectedCount = [int]$App.fileCount
+    $fileRatio = 1.0
     if ($expectedCount -gt 0) {
-        if (([Math]::Abs($files.Count - $expectedCount) / [double]$expectedCount) -gt $Delta) { return $false }
-    } elseif ($files.Count -ne 0) { return $false }
+        $fileDeviation = [Math]::Abs($files.Count - $expectedCount) / [double]$expectedCount
+        $fileRatio     = [Math]::Max(0.0, 1.0 - $fileDeviation)
+        if ($fileDeviation -gt $DeltaCount) {
+            return [pscustomobject]@{ Ok = $false; FileRatio = $fileRatio; SizeRatio = 1.0 }
+        }
+    } elseif ($files.Count -ne 0) {
+        return [pscustomobject]@{ Ok = $false; FileRatio = 0.0; SizeRatio = 1.0 }
+    }
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     $expectedSize = [long]$App.totalSize
+    $sizeRatio = 1.0
     if ($expectedSize -gt 0) {
-        return ([Math]::Abs($size - $expectedSize) / [double]$expectedSize) -le $Delta
+        $sizeDeviation = [Math]::Abs($size - $expectedSize) / [double]$expectedSize
+        $sizeRatio     = [Math]::Max(0.0, 1.0 - $sizeDeviation)
+        $ok            = $sizeDeviation -le $DeltaSize
+        return [pscustomobject]@{ Ok = $ok; FileRatio = $fileRatio; SizeRatio = $sizeRatio }
     }
-    return ($size -eq 0)
+    $ok = ($size -eq 0)
+    return [pscustomobject]@{ Ok = $ok; FileRatio = $fileRatio; SizeRatio = if ($ok) { 1.0 } else { 0.0 } }
 }
 
 function Remove-Junction {
@@ -1424,7 +1444,7 @@ function Get-AppDiff {
             if ($isTerminal) {
                 [Console]::Write("`r  $($app.name)...                              ")
             }
-            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir -Delta $IntegrityDelta
+            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir -DeltaCount $IntegrityDeltaCount -DeltaSize $IntegrityDeltaSize
         }
         if ($isTerminal) {
             [Console]::Write("`r" + (' ' * 55) + "`r")
@@ -1436,26 +1456,36 @@ function Get-AppDiff {
     return [pscustomobject]@{
         # "?" means version unknown but directory exists: use integrity as the tiebreaker.
         # If files match the target version -> treat as UpToDate. Otherwise fresh install.
-        ToInstall = @($Manifest.apps | Where-Object {
+        ToInstall      = @($Manifest.apps | Where-Object {
             (-not $LocalVersions.ContainsKey($_.name)) -or
-            ($LocalVersions[$_.name] -eq '?' -and -not $integrityCache[$_.name])
+            ($LocalVersions[$_.name] -eq '?' -and -not ($integrityCache.ContainsKey($_.name) -and $integrityCache[$_.name].Ok))
         })
-        ToUpdate  = @($Manifest.apps | Where-Object {
+        ToUpdate       = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and
             $LocalVersions[$_.name] -ne $_.version -and
             $LocalVersions[$_.name] -ne '?'
         })
-        ToRepair  = @($Manifest.apps | Where-Object {
+        ToRepair       = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and $LocalVersions[$_.name] -eq $_.version -and
-            ($ForceReinstall -or -not $integrityCache[$_.name])
+            ($ForceReinstall -or -not ($integrityCache.ContainsKey($_.name) -and $integrityCache[$_.name].Ok))
         })
-        UpToDate  = @($Manifest.apps | Where-Object {
+        UpToDate       = @($Manifest.apps | Where-Object {
             $LocalVersions.ContainsKey($_.name) -and -not $ForceReinstall -and
-            $integrityCache[$_.name] -and
+            ($integrityCache.ContainsKey($_.name) -and $integrityCache[$_.name].Ok) -and
             ($LocalVersions[$_.name] -eq $_.version -or $LocalVersions[$_.name] -eq '?')
         })
-        Removed   = @($LocalVersions.Keys | Where-Object { $_ -notin $names })
+        Removed        = @($LocalVersions.Keys | Where-Object { $_ -notin $names })
+        IntegrityCache = $integrityCache
     }
+}
+
+function Format-IntegrityRatio {
+    param([pscustomobject]$ir)
+    if ($null -eq $ir) { return "" }
+    $f = [int]([Math]::Round($ir.FileRatio * 100))
+    $s = [int]([Math]::Round($ir.SizeRatio * 100))
+    if ($f -eq 100 -and $s -eq 100) { return "" }
+    return " ($f%/$s%)"
 }
 
 function Show-AppStatus {
@@ -1463,12 +1493,16 @@ function Show-AppStatus {
     Write-Host ""
     foreach ($a in $Diff.ToInstall) { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
     foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
-    foreach ($a in $Diff.ToRepair)  { Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair" -ForegroundColor Yellow }
+    foreach ($a in $Diff.ToRepair) {
+        $ratio = Format-IntegrityRatio $Diff.IntegrityCache[$a.name]
+        Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair$ratio" -ForegroundColor Yellow
+    }
     foreach ($a in $Diff.UpToDate) {
+        $ratio = Format-IntegrityRatio $Diff.IntegrityCache[$a.name]
         if ($LocalVersions[$a.name] -eq '?') {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)$ratio" -ForegroundColor Green
         } else {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date$ratio" -ForegroundColor Green
         }
     }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
@@ -1485,10 +1519,11 @@ function Show-PostStatus {
         }
     }
     foreach ($a in $Diff.UpToDate) {
+        $ratio = Format-IntegrityRatio $Diff.IntegrityCache[$a.name]
         if ($LocalVersions[$a.name] -eq '?') {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)$ratio" -ForegroundColor Green
         } else {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date$ratio" -ForegroundColor Green
         }
     }
     foreach ($n in $Diff.Removed) { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
@@ -1755,15 +1790,15 @@ if ($Command -eq "update") {
         }
         $vLabel = if ($tsVersion) { "version $tsVersion  ready" } else { "ready" }
         Write-Host ""
-        Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
-        Write-Host "  |   _____ ___   ___  _     ____  _____ ___ |" -ForegroundColor Cyan
-        Write-Host "  |  |_   _/ _ \ / _ \| |   / ___|| ____|_  ||" -ForegroundColor Cyan
-        Write-Host "  |    | || | | | | | | |   \___ \|  _|   | ||" -ForegroundColor Cyan
-        Write-Host "  |    | || |_| | |_| | |___ ___) | |___  | ||" -ForegroundColor Cyan
-        Write-Host "  |    |_| \___/ \___/|_____|____/|_____| |_||" -ForegroundColor Cyan
-        Write-Host "  |                                           |" -ForegroundColor Cyan
-        Write-Host "  |  $($vLabel.PadRight(41))|" -ForegroundColor Cyan
-        Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
+        Write-Host "  +---------------------------------------------+" -ForegroundColor Cyan
+        Write-Host "  |  _____  ___   ___  _     ____  _____   ____ |" -ForegroundColor Cyan
+        Write-Host "  | |_   _|/ _ \ / _ \| |  / ___| |  ___| |_  _||" -ForegroundColor Cyan
+        Write-Host "  |   | | | | | | | | | |   \___ \|  _|    | |  |" -ForegroundColor Cyan
+        Write-Host "  |   | | | |_| | |_| | |___ ___) | |___   | |  |" -ForegroundColor Cyan
+        Write-Host "  |   |_|  \___/ \___/|_____|____/|_____|  |_|  |" -ForegroundColor Cyan
+        Write-Host "  |                                             |" -ForegroundColor Cyan
+        Write-Host "  |  $($vLabel.PadRight(43))|" -ForegroundColor Cyan
+        Write-Host "  +---------------------------------------------+" -ForegroundColor Cyan
         Write-Host ""
         if (-not $NoInteraction) {
             Read-Host "Press Enter to close"

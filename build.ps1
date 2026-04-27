@@ -145,7 +145,7 @@ try {
     # Persist junctions (data\, bin\, settings\, …) ARE followed when zipping so
     # that fresh installs receive the default persisted files.  However the
     # recorded fileCount/totalSize (used by Test-AppIntegrity on clients) is
-    # computed by Measure-SourceNoJunction, which stops at reparse points.
+    # computed by Get-FilesNoJunction, which stops at reparse points.
     # This keeps the counts consistent with what Test-AppIntegrity measures after
     # scoop activation, even if users later add files to their persist folder.
     function Add-ZipType {
@@ -196,45 +196,15 @@ try {
         } finally { $zip.Dispose() }
     }
 
-    # ── Measure-SourceNoJunction: junction-aware file counter ─────────────
-    # Recursively walks $Path, stopping at reparse points (scoop persist
-    # junctions: data\, bin\, settings\, ...) instead of following them.
-    # Also skips the current\ subtree, which is excluded from packs.
-    # Accepts optional ExcludePaths (relative path prefixes) for apps that
-    # store user-modifiable data in real subdirs (e.g. cmder vendor\conemu-maximus5).
-    # Returns a hashtable with Count (file count) and TotalSize (bytes).
-    # Used to record fileCount/totalSize in the release manifest so they match
-    # what Test-AppIntegrity measures on the client after scoop activation.
-    function Measure-SourceNoJunction {
-        param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '')
-        if ($RootPath -eq '') { $RootPath = $Path }
-        $count = 0
-        $size  = [long]0
-        Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            if ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-                # Stop at junctions -- do not traverse into scoop persist targets.
-            } elseif ($_.PSIsContainer) {
-                if ($_.Name -ne 'current') {
-                    $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
-                    $excluded = $false
-                    foreach ($ex in $ExcludePaths) {
-                        if ($rel -like "$ex" -or $rel -like "$ex\*" -or $rel -like "$ex/*") {
-                            $excluded = $true; break
-                        }
-                    }
-                    if (-not $excluded) {
-                        $sub = Measure-SourceNoJunction $_.FullName $ExcludePaths $RootPath
-                        $count += $sub.Count
-                        $size  += $sub.TotalSize
-                    }
-                }
-            } else {
-                $count++
-                $size += $_.Length
-            }
-        }
-        return @{ Count = $count; TotalSize = $size }
-    }
+    # ── Get-FilesNoJunction: loaded directly from toolset.ps1 (single source of truth)
+    $_tsAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $PSScriptRoot 'toolset.ps1'), [ref]$null, [ref]$null)
+    $_fnDef = $_tsAst.FindAll({
+        $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $args[0].Name -eq 'Get-FilesNoJunction'
+    }, $true) | Select-Object -First 1
+    if (-not $_fnDef) { throw "Get-FilesNoJunction not found in toolset.ps1" }
+    Invoke-Expression $_fnDef.Extent.Text
 
     # ── Pack library: enumerate past releases via gh release list ─────────
     # In CI (RELEASE_VERSION set) we call "gh release list --limit 50" to get all
@@ -401,8 +371,9 @@ try {
             $scoopPackPath = "$packsDir\$scoopPackName"
             Write-Output "  Packing scoop $scoopVer..."
             New-ZipPack -AppDir $scoopAppDir -DestZip $scoopPackPath
-            $m = Measure-SourceNoJunction $scoopAppDir
-            $fc = $m.Count; $ts = $m.TotalSize
+            $scoopFiles = @(Get-FilesNoJunction -Path $scoopAppDir)
+            $fc = $scoopFiles.Count
+            $ts = [long]($scoopFiles | Measure-Object -Property Length -Sum).Sum
             $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $scoopPackName; fileCount = $fc; totalSize = $ts }
         }
     } else {
@@ -561,14 +532,35 @@ try {
             # Integrity metadata is computed from the versioned subdir (matching the path
             # Test-AppIntegrity uses on the client) so that integrityExcludePaths relative
             # paths are consistent -- no version-prefix mismatch from counting at the app dir level.
-            $excludePaths = if ($app.PSObject.Properties['integrityExcludePaths']) { @($app.integrityExcludePaths) } else { @() }
-            $appBuildDir  = "build\scoop\apps\$appName"
-            $verObj       = Get-ChildItem $appBuildDir -Directory -ErrorAction SilentlyContinue |
-                                Where-Object { $_.Name -ne 'current' } |
-                                Sort-Object Name -Descending | Select-Object -First 1
-            $measureRoot  = if ($verObj) { $verObj.FullName } else { (Resolve-Path $appBuildDir -ErrorAction SilentlyContinue).ProviderPath }
-            $m  = Measure-SourceNoJunction $measureRoot $excludePaths
-            $fc = $m.Count; $ts = $m.TotalSize
+            # Persist entries from the scoop manifest.json are excluded so the recorded counts
+            # match what Test-AppIntegrity measures after scoop activation (where they become
+            # junctions/symlinks and are automatically skipped on the client).
+            $excludePaths     = if ($app.PSObject.Properties['integrityExcludePaths']) { @($app.integrityExcludePaths) } else { @() }
+            $persistDirExcl   = @()
+            $persistFileExcl  = @()
+            $appBuildDir      = "build\scoop\apps\$appName"
+            $verObj           = Get-ChildItem $appBuildDir -Directory -ErrorAction SilentlyContinue |
+                                    Where-Object { $_.Name -ne 'current' } |
+                                    Sort-Object Name -Descending | Select-Object -First 1
+            $measureRoot      = if ($verObj) { $verObj.FullName } else { (Resolve-Path $appBuildDir -ErrorAction SilentlyContinue).ProviderPath }
+            $scoopMfst        = if ($measureRoot) { "$measureRoot\manifest.json" } else { "" }
+            if ($scoopMfst -and (Test-Path $scoopMfst -ErrorAction SilentlyContinue)) {
+                try {
+                    $sm = Get-Content $scoopMfst -Raw | ConvertFrom-Json
+                    if ($sm.PSObject.Properties['persist']) {
+                        @($sm.persist) | ForEach-Object {
+                            if ($_ -is [string]) {
+                                $entry = $_.Replace('/', '\').TrimStart('\')
+                                $persistDirExcl  += $entry
+                                $persistFileExcl += $entry
+                            }
+                        }
+                    }
+                } catch { }
+            }
+            $measuredFiles = @(Get-FilesNoJunction -Path $measureRoot -ExcludePaths ($excludePaths + $persistDirExcl) -ExcludeFilePaths $persistFileExcl)
+            $fc = $measuredFiles.Count
+            $ts = [long]($measuredFiles | Measure-Object -Property Length -Sum).Sum
             $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts }
         }
     }
