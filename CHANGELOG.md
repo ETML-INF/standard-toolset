@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.0](https://github.com/ETML-INF/standard-toolset/compare/v2.4.0...v2.5.0) (2026-04-27)
+
+
+### Features
+
+* **integrity check:** keep title ([d1bdd1a](https://github.com/ETML-INF/standard-toolset/commit/d1bdd1aa13bd855937d96fbea0cbce87a8214ffa))
+* **integrity:** better integrity handling ([8fc4460](https://github.com/ETML-INF/standard-toolset/commit/8fc4460c94cfcbd2557afa55b5464891cd9d247c))
+
 ## [2.4.0](https://github.com/ETML-INF/standard-toolset/compare/v2.3.7...v2.4.0) (2026-04-24)
 
 
