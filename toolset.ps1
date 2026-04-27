@@ -1416,9 +1416,9 @@ function Get-AppDiff {
     if ($appsToCheck.Count -gt 0) {
         $isTerminal = -not [Console]::IsOutputRedirected
         if ($isTerminal) {
-            [Console]::Write("  Checking integrity...")
+            [Console]::WriteLine("  Checking already installed apps integrity...")
         } else {
-            Write-Host "  Checking integrity ($($appsToCheck.Count) apps)..." -ForegroundColor DarkGray -NoNewline
+            Write-Host "  Checking integrity ($($appsToCheck.Count) apps)...\n" -ForegroundColor DarkGray
         }
         foreach ($app in $appsToCheck) {
             if ($isTerminal) {
