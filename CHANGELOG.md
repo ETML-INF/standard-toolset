@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.6.0](https://github.com/ETML-INF/standard-toolset/compare/v2.5.0...v2.6.0) (2026-04-30)
+
+
+### Features
+
+* **buildpath:** optimistic pre-patch and repatch on activation ([e2cd486](https://github.com/ETML-INF/standard-toolset/commit/e2cd48654fa0dd04b14c37b4580a4b7f18ea9212))
+* **doc:** add screenshot for easy click install ([e2cd486](https://github.com/ETML-INF/standard-toolset/commit/e2cd48654fa0dd04b14c37b4580a4b7f18ea9212))
+* **pack:** added checksum ([e2cd486](https://github.com/ETML-INF/standard-toolset/commit/e2cd48654fa0dd04b14c37b4580a4b7f18ea9212))
+
 ## [2.5.0](https://github.com/ETML-INF/standard-toolset/compare/v2.4.0...v2.5.0) (2026-04-27)
 
 
