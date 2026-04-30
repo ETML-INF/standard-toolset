@@ -39,7 +39,8 @@ param(
     [switch]$NoCleanup,
     [string]$BaseImage = "",
     [switch]$SkipStaticChecks,
-    [string[]]$Scenario = @()
+    [string[]]$Scenario = @(),
+    [switch]$Debug
 )
 
 Set-StrictMode -Version Latest
@@ -70,8 +71,10 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
 # ── Run ───────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "Running tests..." -ForegroundColor Yellow
-$scenarioArgs = if ($Scenario) { @("-Scenario") + $Scenario } else { @() }
-docker @dockerArgs run --rm $image @scenarioArgs
+$runArgs = @()
+if ($Scenario) { $runArgs += @("-Scenario") + $Scenario }
+if ($Debug)    { $runArgs += "-Debug" }
+docker @dockerArgs run --rm $image @runArgs
 $exitCode = $LASTEXITCODE
 
 # ── Cleanup ───────────────────────────────────────────────────────────────

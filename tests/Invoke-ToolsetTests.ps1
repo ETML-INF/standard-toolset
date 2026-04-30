@@ -2,6 +2,7 @@
   Container test runner. Runs inside Windows Nano Server.
   Exit 0 = all pass, Exit 1 = any failure.
 #>
+[CmdletBinding()]
 param([string[]]$Scenario = @())
 
 Set-StrictMode -Version Latest

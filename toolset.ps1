@@ -1156,7 +1156,7 @@ function Get-FilesNoJunction {
         System.IO.FileInfo objects for every file that is not inside a reparse point,
         an excluded subtree, or an excluded file path.
     #>
-    param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '', [string[]]$ExcludeFilePaths = @())
+    param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '', [string[]]$ExcludeFilePaths = @(), [scriptblock]$OnProgress = $null)
     if (-not $RootPath) { $RootPath = $Path }
     $reparseAttr = [System.IO.FileAttributes]::ReparsePoint
     $stack = [System.Collections.Generic.Stack[string]]::new()
@@ -1178,13 +1178,17 @@ function Get-FilesNoJunction {
                         $rel = $item.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
                         $skip = $false
                         foreach ($ef in $ExcludeFilePaths) { if ($rel -like $ef) { $skip = $true; break } }
-                        if (-not $skip) { $item }
+                        if (-not $skip) { $item; if ($OnProgress) { $null = & $OnProgress } }
                     } else {
-                        $item
+                        $item; if ($OnProgress) { $null = & $OnProgress }
                     }
                 }
             }
-        } catch { }
+        } catch {
+            # Silently skip unreadable directories (e.g. UnauthorizedAccessException).
+            # Use -Debug to surface unexpected errors here during development.
+            Write-Debug "Get-FilesNoJunction: skipped '$dir' -- $_"
+        }
     }
 }
 
@@ -1215,7 +1219,7 @@ function Test-AppIntegrity {
         PSCustomObject with Ok (bool), FileRatio (0.0-1.0), SizeRatio (0.0-1.0).
         Ratios express how close actual is to expected: 1.0 = perfect, 0.97 = 3% off.
     #>
-    param([object]$App, [string]$toolsetdir, [double]$DeltaCount = 0.05, [double]$DeltaSize = 0.10)
+    param([object]$App, [string]$toolsetdir, [double]$DeltaCount = 0.05, [double]$DeltaSize = 0.10, [scriptblock]$OnProgress = $null)
     # Graceful degradation: old manifests without metadata are treated as healthy
     if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) {
         return [pscustomobject]@{ Ok = $true; FileRatio = 1.0; SizeRatio = 1.0 }
@@ -1256,7 +1260,7 @@ function Test-AppIntegrity {
             }
         } catch { }
     }
-    $files = @(Get-FilesNoJunction -Path $versionDir -ExcludePaths ($excludePaths + $persistDirExcludes) -ExcludeFilePaths $persistFileExcludes)
+    $files = @(Get-FilesNoJunction -Path $versionDir -ExcludePaths ($excludePaths + $persistDirExcludes) -ExcludeFilePaths $persistFileExcludes -OnProgress $OnProgress)
     $expectedCount = [int]$App.fileCount
     $fileRatio = 1.0
     if ($expectedCount -gt 0) {
@@ -1457,20 +1461,29 @@ function Get-AppDiff {
     if ($appsToCheck.Count -gt 0) {
         $isTerminal = -not [Console]::IsOutputRedirected
         if ($isTerminal) {
-            [Console]::WriteLine("  Checking already installed apps integrity...")
+            [Console]::WriteLine("  Checking integrity ($($appsToCheck.Count) apps)...")
         } else {
-            Write-Host "  Checking integrity ($($appsToCheck.Count) apps)...\n" -ForegroundColor DarkGray
+            Write-Host "  Checking integrity ($($appsToCheck.Count) apps)..." -NoNewline
         }
+        $spinFrames = @('|', '/', '-', '\')
+        $spinState  = @{ idx = 0 }
         foreach ($app in $appsToCheck) {
             if ($isTerminal) {
-                [Console]::Write("`r  $($app.name)...                              ")
+                $onProgress = {
+                    [Console]::Write("`r  $($spinFrames[$spinState.idx % 4]) $($app.name)  ")
+                    $spinState.idx++
+                }
+            } else {
+                $onProgress = $null
+                Write-Host "    $($app.name)"
             }
-            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir -DeltaCount $IntegrityDeltaCount -DeltaSize $IntegrityDeltaSize
+            $integrityCache[$app.name] = Test-AppIntegrity -App $app -toolsetdir $toolsetdir `
+                -DeltaCount $IntegrityDeltaCount -DeltaSize $IntegrityDeltaSize -OnProgress $onProgress
         }
         if ($isTerminal) {
-            [Console]::Write("`r" + (' ' * 55) + "`r")
+            [Console]::WriteLine("`r  done" + (' ' * 40))
         } else {
-            Write-Host ' done' -ForegroundColor DarkGray
+            Write-Host ' done'
         }
     }
 
