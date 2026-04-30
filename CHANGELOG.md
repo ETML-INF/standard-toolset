@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.2](https://github.com/ETML-INF/standard-toolset/compare/v2.6.1...v2.6.2) (2026-04-30)
+
+
+### Bug Fixes
+
+* **nodejs:** honor nodejs ([f84627c](https://github.com/ETML-INF/standard-toolset/commit/f84627cd1e5c1dec3f719afc9260923a98cfc016))
+* **oops:** oops ([ac3d356](https://github.com/ETML-INF/standard-toolset/commit/ac3d35603126f80ec7fa3b8cbc819c5e080ad52b))
+
 ## [2.6.1](https://github.com/ETML-INF/standard-toolset/compare/v2.6.0...v2.6.1) (2026-04-30)
 
 
