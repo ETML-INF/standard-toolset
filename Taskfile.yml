@@ -1,0 +1,39 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds: [task --list]
+
+  test:
+    desc: Run all tests (static + Docker)
+    cmds: [pwsh -File tests/Test-All.ps1]
+
+  test:static:
+    desc: Static checks only -- no Docker needed (lint, ASCII, apps.json)
+    cmds: [pwsh -File tests/Test-StaticChecks.ps1 -RepoRoot .]
+
+  test:node:
+    desc: Node.js conflict tests -- no Docker needed
+    cmds: [pwsh -File tests/Run-NodeCheckTests.ps1]
+
+  test:toolset:
+    desc: Toolset unit tests -- requires Docker Windows containers
+    cmds: [pwsh -File tests/Run-ToolsetTests.ps1]
+
+  test:build:
+    desc: Build pipeline tests -- requires Docker Windows containers
+    cmds: [pwsh -File tests/Run-BuildTests.ps1]
+
+  test:scenario:
+    desc: Run specific scenario(s) e.g. task test:scenario -- 1 3a 6
+    cmds:
+      - pwsh -File tests/Run-ToolsetTests.ps1 -Scenario {{.CLI_ARGS}}
+
+  offline:
+    desc: Prepare offline deployment folder
+    cmds: [pwsh -File offline-download.ps1]
+
+  build:
+    desc: Build application packs (requires Docker)
+    cmds: [pwsh -File local-build.ps1]
