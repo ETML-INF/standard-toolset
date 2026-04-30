@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/ETML-INF/standard-toolset/compare/v2.6.0...v2.6.1) (2026-04-30)
+
+
+### Bug Fixes
+
+* **nodecheck:** honor node check ([fbb9009](https://github.com/ETML-INF/standard-toolset/commit/fbb900916eeace7675cffb9488928720d068684e))
+
 ## [2.6.0](https://github.com/ETML-INF/standard-toolset/compare/v2.5.0...v2.6.0) (2026-04-30)
 
 
