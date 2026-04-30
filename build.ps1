@@ -196,15 +196,33 @@ try {
         } finally { $zip.Dispose() }
     }
 
-    # ── Get-FilesNoJunction: loaded directly from toolset.ps1 (single source of truth)
+    function Invoke-PrePackPatch {
+        # Patches app files listed in patchBuildPaths before the zip pack is created.
+        # Delegates to Invoke-PatchMarkerFile (imported from toolset.ps1) for the core logic.
+        param([string]$AppDir, [string]$BuildScoopDir, [string]$DefaultScoopDir, [string[]]$FilePaths)
+        $verDir = Get-ChildItem $AppDir -Directory -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Name -ne 'current' } |
+                      Sort-Object Name -Descending |
+                      Select-Object -First 1 -ExpandProperty FullName
+        if (-not $verDir) { return }
+        foreach ($filePath in $FilePaths) {
+            $full = Join-Path $verDir $filePath
+            if (-not (Test-Path $full -PathType Leaf -ErrorAction SilentlyContinue)) { continue }
+            Invoke-PatchMarkerFile -FilePath $full -OldPath $BuildScoopDir -NewPath $DefaultScoopDir
+        }
+    }
+
+    # ── Functions loaded directly from toolset.ps1 (single source of truth) ──
     $_tsAst = [System.Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $PSScriptRoot 'toolset.ps1'), [ref]$null, [ref]$null)
-    $_fnDef = $_tsAst.FindAll({
-        $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $args[0].Name -eq 'Get-FilesNoJunction'
-    }, $true) | Select-Object -First 1
-    if (-not $_fnDef) { throw "Get-FilesNoJunction not found in toolset.ps1" }
-    Invoke-Expression $_fnDef.Extent.Text
+    foreach ($_fn in @('Get-FilesNoJunction', 'Invoke-PatchMarkerFile')) {
+        $_fnDef = $_tsAst.FindAll({
+            $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $args[0].Name -eq $_fn
+        }, $true) | Select-Object -First 1
+        if (-not $_fnDef) { throw "$_fn not found in toolset.ps1" }
+        Invoke-Expression $_fnDef.Extent.Text
+    }
 
     # ── Pack library: enumerate past releases via gh release list ─────────
     # In CI (RELEASE_VERSION set) we call "gh release list --limit 50" to get all
@@ -255,6 +273,7 @@ try {
                     url                   = $packUrl0
                     fileCount             = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
                     totalSize             = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                    zipMd5                = if ($a.PSObject.Properties['zipMd5'])    { $a.zipMd5    } else { $null }
                     integrityExcludePaths = if ($a.PSObject.Properties['integrityExcludePaths']) { $a.integrityExcludePaths } else { $null }
                 }
             }
@@ -313,6 +332,7 @@ try {
                         url                   = $packUrl
                         fileCount             = if ($a.PSObject.Properties['fileCount']) { $a.fileCount } else { $null }
                         totalSize             = if ($a.PSObject.Properties['totalSize']) { $a.totalSize } else { $null }
+                        zipMd5                = if ($a.PSObject.Properties['zipMd5'])    { $a.zipMd5    } else { $null }
                         integrityExcludePaths = if ($a.PSObject.Properties['integrityExcludePaths']) { $a.integrityExcludePaths } else { $null }
                     }
                 }
@@ -365,6 +385,7 @@ try {
             $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $entry.pack; packUrl = $entry.url }
             if ($null -ne $entry.fileCount) { $scoopPackResult['fileCount'] = $entry.fileCount }
             if ($null -ne $entry.totalSize)  { $scoopPackResult['totalSize'] = $entry.totalSize }
+            if ($null -ne $entry.zipMd5)     { $scoopPackResult['zipMd5']    = $entry.zipMd5    }
             $reusedCount++
         } else {
             $scoopPackName = "scoop-$scoopVer.zip"
@@ -374,7 +395,7 @@ try {
             $scoopFiles = @(Get-FilesNoJunction -Path $scoopAppDir)
             $fc = $scoopFiles.Count
             $ts = [long]($scoopFiles | Measure-Object -Property Length -Sum).Sum
-            $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $scoopPackName; fileCount = $fc; totalSize = $ts }
+            $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $scoopPackName; fileCount = $fc; totalSize = $ts; zipMd5 = (Get-FileHash -Algorithm MD5 $scoopPackPath).Hash.ToLower() }
         }
     } else {
         Write-Warning "Could not determine scoop version under $scoopAppDir - scoop will not be included in this release"
@@ -445,6 +466,7 @@ try {
                     }
                     if ($null -ne $entry.fileCount) { $result['fileCount'] = $entry.fileCount }
                     if ($null -ne $entry.totalSize)  { $result['totalSize'] = $entry.totalSize }
+                    if ($null -ne $entry.zipMd5)     { $result['zipMd5']    = $entry.zipMd5    }
                     $packResults[$appName] = $result
                     $reusedCount++
                     $reused = $true
@@ -525,6 +547,11 @@ try {
             $packPath = "$packsDir\$packName"
 
             Write-Output "  Packing $appName $version..."
+            if ($app.PSObject.Properties['patchBuildPaths'] -and @($app.patchBuildPaths).Count -gt 0) {
+                $patchFiles = @($app.patchBuildPaths | ForEach-Object { [string]$_ })
+                Invoke-PrePackPatch -AppDir "build\scoop\apps\$appName" -BuildScoopDir $buildScoopDir `
+                    -DefaultScoopDir 'C:\inf-toolset\scoop' -FilePaths $patchFiles
+            }
             # Zip root = <appName>\ -- extraction to scoop\apps\ gives the correct layout.
             # 'current' is a scoop junction recreated by 'scoop reset *' after extraction;
             # it is excluded by the [/\\]current[/\\] filter in New-ZipPack.
@@ -561,7 +588,7 @@ try {
             $measuredFiles = @(Get-FilesNoJunction -Path $measureRoot -ExcludePaths ($excludePaths + $persistDirExcl) -ExcludeFilePaths $persistFileExcl)
             $fc = $measuredFiles.Count
             $ts = [long]($measuredFiles | Measure-Object -Property Length -Sum).Sum
-            $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts }
+            $packResults[$appName] = [ordered]@{ name = $appName; version = $version; pack = $packName; fileCount = $fc; totalSize = $ts; zipMd5 = (Get-FileHash -Algorithm MD5 $packPath).Hash.ToLower() }
         }
     }
 

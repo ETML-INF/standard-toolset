@@ -74,13 +74,14 @@ foreach ($app in $Apps) {
 
     $packPath = Join-Path $OutputDir $packName
     Compress-Archive -Path (Join-Path $tmpDir $name) -DestinationPath $packPath -Force
+    $zipMd5 = (Get-FileHash -Algorithm MD5 $packPath).Hash.ToLower()
     # Strip read-only attributes before removal (Compress-Archive can leave them).
-    # Include $tmpDir itself — Get-ChildItem -Recurse does not return the root.
+    # Include $tmpDir itself -- Get-ChildItem -Recurse does not return the root.
     @(Get-Item $tmpDir) + @(Get-ChildItem $tmpDir -Recurse -Force -ErrorAction SilentlyContinue) |
         ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
     try { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
-    $entry = [ordered]@{ name = $name; version = $version; pack = $packName; fileCount = $fileCount; totalSize = $totalSize }
+    $entry = [ordered]@{ name = $name; version = $version; pack = $packName; fileCount = $fileCount; totalSize = $totalSize; zipMd5 = $zipMd5 }
     if ($excludePaths.Count -gt 0) { $entry['integrityExcludePaths'] = $excludePaths }
     $manifestApps += $entry
 }

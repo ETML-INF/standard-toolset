@@ -7,7 +7,10 @@ La liste des apps est décrite dans le fichier [apps.json](apps.json)
 
 ### Depuis le réseau local (L:\) — recommandé en salle
 
-Copier-coller dans **cmd.exe** :
+Via l'explorateur avec `install.cmd`: 
+![installation](toolset-install.png)
+
+Ou copier-coller dans **cmd.exe** :
 
 ```shell
 powershell -ExecutionPolicy Bypass -File L:\toolset\toolset.ps1 update

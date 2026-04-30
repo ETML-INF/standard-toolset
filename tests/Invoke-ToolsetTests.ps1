@@ -917,6 +917,7 @@ $npmrc41a = Get-Content "$d41a\scoop\apps\nodejs-lts\current\.npmrc" -Raw -Error
 Assert "[41a] exit 0"                           ($ec41a -eq 0)
 Assert "[41a] CI scoop path replaced in .npmrc" ($npmrc41a -notlike "*$fakeCIScoop41*")
 Assert "[41a] real scoop path in .npmrc"        ($npmrc41a -like "*\scoop\persist\nodejs-lts*")
+Assert "[41a] marker comment added for future re-patch" ($npmrc41a -like "*# toolset:patch*__TOOLSET_SCOOP__*")
 Remove-TestDir $d41a, $ps41a
 
 Write-Host "[41b] patchBuildPaths — listed file (config.ini) patched" -ForegroundColor Cyan
@@ -1201,6 +1202,86 @@ Assert "[51] [=] shown (integrity passes)"               ($out51 -match "\[=\]")
 Assert "[51] no FAILED in output"                        ($out51 -notmatch "FAILED")
 Assert "[51] persist data untouched"                     (Test-Path "$persist51\cached.dat")
 Remove-TestDir $d51, $ps51, $persist51
+
+Write-Host "[52] patchBuildPaths -- marker comment: sentinel path replaced with real scoopdir" -ForegroundColor Cyan
+# Pack ships with default path (C:\inf-toolset\scoop) already baked in + marker comment template.
+# When installed to a non-default path the marker lets activation find and re-patch the value.
+$d52 = "C:\tmp\s52d"; $ps52 = "C:\tmp\s52p"
+$tmp52 = "$env:TEMP\s52-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp52\nodejs-lts\current" | Out-Null
+@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$tmp52\nodejs-lts\current\manifest.json" -Encoding UTF8
+# File already contains marker comment + default path (as build.ps1 will produce after this feature)
+$npmrcContent52 = "# toolset:patch prefix=__TOOLSET_SCOOP__\persist\nodejs-lts`nprefix=C:\inf-toolset\scoop\persist\nodejs-lts"
+Set-Content "$tmp52\nodejs-lts\current\.npmrc" $npmrcContent52 -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps52
+Compress-Archive -Path "$tmp52\nodejs-lts" -DestinationPath "$ps52\nodejs-lts-20.0.0.zip" -Force
+Remove-TestDir $tmp52
+@{
+    version = "99.0.0"; buildScoopDir = "C:\fake-ci-52"
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip"
+                patchBuildPaths = @(".npmrc") })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps52\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d52 -ManifestSource "$ps52\release-manifest.json" -PackSource $ps52 -NoInteraction 2>$null
+$ec52    = $LASTEXITCODE
+$npmrc52 = Get-Content "$d52\scoop\apps\nodejs-lts\current\.npmrc" -Raw -ErrorAction SilentlyContinue
+Assert "[52] exit 0"                                   ($ec52 -eq 0)
+Assert "[52] default path replaced with real scoopdir" ($npmrc52 -notlike "*C:\inf-toolset\scoop*")
+Assert "[52] real scoopdir in .npmrc"                  ($npmrc52 -like "*$d52\scoop\persist\nodejs-lts*")
+Assert "[52] marker comment preserved"                 ($npmrc52 -like "*# toolset:patch*__TOOLSET_SCOOP__*")
+Remove-TestDir $d52, $ps52
+
+Write-Host "[53] patchBuildPaths -- marker comment: idempotent when value already matches scoopdir" -ForegroundColor Cyan
+# If the .npmrc already has the correct scoopdir the file must not be rewritten spuriously.
+$d53 = "C:\tmp\s53d"; $ps53 = "C:\tmp\s53p"
+$tmp53 = "$env:TEMP\s53-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp53\nodejs-lts\current" | Out-Null
+@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$tmp53\nodejs-lts\current\manifest.json" -Encoding UTF8
+# File already has the exact target scoopdir value (simulates re-activation without a move)
+$scoopdir53 = "$d53\scoop"
+$npmrcContent53 = "# toolset:patch prefix=__TOOLSET_SCOOP__\persist\nodejs-lts`nprefix=$scoopdir53\persist\nodejs-lts"
+Set-Content "$tmp53\nodejs-lts\current\.npmrc" $npmrcContent53 -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps53
+Compress-Archive -Path "$tmp53\nodejs-lts" -DestinationPath "$ps53\nodejs-lts-20.0.0.zip" -Force
+Remove-TestDir $tmp53
+@{
+    version = "99.0.0"; buildScoopDir = "C:\fake-ci-53"
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip"
+                patchBuildPaths = @(".npmrc") })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps53\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d53 -ManifestSource "$ps53\release-manifest.json" -PackSource $ps53 -NoInteraction 2>$null
+$ec53    = $LASTEXITCODE
+$npmrc53 = Get-Content "$d53\scoop\apps\nodejs-lts\current\.npmrc" -Raw -ErrorAction SilentlyContinue
+Assert "[53] exit 0"                           ($ec53 -eq 0)
+Assert "[53] correct scoopdir present"         ($npmrc53 -like "*$scoopdir53\persist\nodejs-lts*")
+Assert "[53] marker comment preserved"         ($npmrc53 -like "*# toolset:patch*__TOOLSET_SCOOP__*")
+Remove-TestDir $d53, $ps53
+
+Write-Host "[54] patchBuildPaths -- marker comment: stale path re-patched when toolset moved" -ForegroundColor Cyan
+# Simulates a toolset previously installed at a different path.
+# The .npmrc has the old path; activation must re-patch it using the marker comment template.
+$d54 = "C:\tmp\s54d"; $ps54 = "C:\tmp\s54p"
+$tmp54 = "$env:TEMP\s54-$(Get-Random)"
+New-Item -Force -ItemType Directory "$tmp54\nodejs-lts\current" | Out-Null
+@{ version = "20.0.0" } | ConvertTo-Json | Set-Content "$tmp54\nodejs-lts\current\manifest.json" -Encoding UTF8
+$stale54 = "C:\old-toolset\scoop"
+$npmrcContent54 = "# toolset:patch prefix=__TOOLSET_SCOOP__\persist\nodejs-lts`nprefix=$stale54\persist\nodejs-lts"
+Set-Content "$tmp54\nodejs-lts\current\.npmrc" $npmrcContent54 -Encoding UTF8
+$null = New-Item -ItemType Directory -Force $ps54
+Compress-Archive -Path "$tmp54\nodejs-lts" -DestinationPath "$ps54\nodejs-lts-20.0.0.zip" -Force
+Remove-TestDir $tmp54
+@{
+    version = "99.0.0"; buildScoopDir = "C:\fake-ci-54"
+    apps = @(@{ name = "nodejs-lts"; version = "20.0.0"; pack = "nodejs-lts-20.0.0.zip"
+                patchBuildPaths = @(".npmrc") })
+} | ConvertTo-Json -Depth 5 | Set-Content "$ps54\release-manifest.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d54 -ManifestSource "$ps54\release-manifest.json" -PackSource $ps54 -NoInteraction 2>$null
+$ec54    = $LASTEXITCODE
+$npmrc54 = Get-Content "$d54\scoop\apps\nodejs-lts\current\.npmrc" -Raw -ErrorAction SilentlyContinue
+Assert "[54] exit 0"                    ($ec54 -eq 0)
+Assert "[54] stale path gone"           ($npmrc54 -notlike "*$stale54*")
+Assert "[54] real scoopdir in .npmrc"   ($npmrc54 -like "*$d54\scoop\persist\nodejs-lts*")
+Assert "[54] marker comment preserved"  ($npmrc54 -like "*# toolset:patch*__TOOLSET_SCOOP__*")
+Remove-TestDir $d54, $ps54
 
 if ($script:fail -gt 0) {
     Write-Host ""

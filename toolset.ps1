@@ -457,6 +457,24 @@ function Invoke-Activate {
     } catch {
         Write-Verbose "icacls failed: $_ - run as administrator to reset permissions if needed"
     }
+
+    $tsVersion = ''
+    $mfstPath  = "$toolsetdir\release-manifest.json"
+    if (Test-Path $mfstPath -ErrorAction SilentlyContinue) {
+        try { $tsVersion = (Get-Content $mfstPath -Raw | ConvertFrom-Json).version } catch {}
+    }
+    $vLabel = if ($tsVersion) { "version $tsVersion  ready" } else { "ready" }
+    Write-Host ""
+    Write-Host "  +---------------------------------------------+" -ForegroundColor Cyan
+    Write-Host "  |  _____  ___   ___  _     ____  _____   ____ |" -ForegroundColor Cyan
+    Write-Host "  | |_   _|/ _ \ / _ \| |  / ___| |  ___| |_  _||" -ForegroundColor Cyan
+    Write-Host "  |   | | | | | | | | | |   \___ \|  _|    | |  |" -ForegroundColor Cyan
+    Write-Host "  |   | | | |_| | |_| | |___ ___) | |___   | |  |" -ForegroundColor Cyan
+    Write-Host "  |   |_|  \___/ \___/|_____|____/|_____|  |_|  |" -ForegroundColor Cyan
+    Write-Host "  |                                             |" -ForegroundColor Cyan
+    Write-Host "  |  $($vLabel.PadRight(43))|" -ForegroundColor Cyan
+    Write-Host "  +---------------------------------------------+" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 # -- manifest + pack helpers (used by update mode) -------------------------
@@ -1529,13 +1547,52 @@ function Show-PostStatus {
     foreach ($n in $Diff.Removed) { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
 }
 
+function Invoke-PatchMarkerFile {
+    # Patches a single file in-place. Two modes applied in order (both idempotent):
+    #   1. Marker-based: "# toolset:patch <template>" lines are re-applied, substituting
+    #      __TOOLSET_SCOOP__ with NewPath. Survives moves because the template is preserved.
+    #   2. Legacy: lines containing OldPath get a marker comment inserted before them and
+    #      OldPath replaced with NewPath. Upgrades old packs to the marker format on first use.
+    param([string]$FilePath, [string]$OldPath, [string]$NewPath)
+    $sentinel   = '__TOOLSET_SCOOP__'
+    $oldEscaped = [regex]::Escape($OldPath)
+    $markerRx   = '(?m)^(# toolset:patch ([^\r\n]+))(\r?\n)([^\r\n]*)'
+    $c = Get-Content $FilePath -Raw -ErrorAction SilentlyContinue
+    if (-not $c) { return }
+    $updated = [regex]::Replace($c, $markerRx, {
+        param($m)
+        $comment  = $m.Groups[1].Value
+        $template = $m.Groups[2].Value
+        $eol      = $m.Groups[3].Value
+        "$comment$eol$($template.Replace($sentinel, $NewPath))"
+    })
+    if ($updated -match $oldEscaped) {
+        $lineEnd = if ($updated -match '\r\n') { "`r`n" } else { "`n" }
+        $lines   = $updated -split '\r?\n'
+        $result  = [System.Collections.Generic.List[string]]::new()
+        foreach ($line in $lines) {
+            if ($line -match $oldEscaped) {
+                $tmpl    = $line -replace $oldEscaped, $sentinel
+                $patched = $line -replace $oldEscaped, $NewPath
+                $result.Add("# toolset:patch $tmpl")
+                $result.Add($patched)
+            } else {
+                $result.Add($line)
+            }
+        }
+        $updated = $result -join $lineEnd
+    }
+    if ($updated -ne $c) {
+        [System.IO.File]::WriteAllText($FilePath, $updated, [System.Text.UTF8Encoding]::new($false))
+    }
+}
+
 function Invoke-PatchBuildPaths {
-    # Replaces the CI scoop base path embedded in specific app files with the real installed scoop dir.
+    # Replaces path references embedded in specific app files with the real installed scoop dir.
     # FilePaths is an array of paths relative to current\ (and persist\) to patch.
     param([string]$toolsetdir, [string]$AppName, [string]$BuildScoopBase, [string[]]$FilePaths)
-    $scoopdir   = "$toolsetdir\scoop"
-    $oldPattern = [regex]::Escape($BuildScoopBase)
-    $scanRoots  = @(
+    $scoopdir  = "$toolsetdir\scoop"
+    $scanRoots = @(
         "$scoopdir\apps\$AppName\current",
         "$scoopdir\persist\$AppName"
     )
@@ -1544,11 +1601,7 @@ function Invoke-PatchBuildPaths {
             if (-not (Test-Path $root -ErrorAction SilentlyContinue)) { continue }
             $full = Join-Path $root $filePath
             if (-not (Test-Path $full -PathType Leaf -ErrorAction SilentlyContinue)) { continue }
-            $c = Get-Content $full -Raw -ErrorAction SilentlyContinue
-            if ($c -and $c -match $oldPattern) {
-                $updated = $c -replace $oldPattern, $scoopdir
-                [System.IO.File]::WriteAllText($full, $updated, [System.Text.UTF8Encoding]::new($false))
-            }
+            Invoke-PatchMarkerFile -FilePath $full -OldPath $BuildScoopBase -NewPath $scoopdir
         }
     }
 }
@@ -1698,6 +1751,12 @@ if ($Command -eq "update") {
             Write-Host "  $($app.pack.PadRight(30))" -ForegroundColor Yellow -NoNewline
             try {
                 $packPath = Get-Pack -App $app -PackSource $PackSource -Version $effectiveVersion -LDrivePath $LDrivePath -ArchivesDir $archivesDir -NoInteraction $NoInteraction
+                if ($packPath -like '*.zip' -and $app.PSObject.Properties['zipMd5'] -and $app.zipMd5) {
+                    $actualMd5 = (Get-FileHash -Algorithm MD5 $packPath).Hash.ToLower()
+                    if ($actualMd5 -ne $app.zipMd5.ToLower()) {
+                        throw "Checksum mismatch for $($app.pack): expected $($app.zipMd5) got $actualMd5"
+                    }
+                }
                 # Private apps (local-path packUrl) install to private\apps\ so scoop reset *
                 # never touches them and their versioned-dir structure is preserved.
                 $isPrivatePack = $app.PSObject.Properties['packUrl'] -and $app.packUrl -and
@@ -1783,23 +1842,6 @@ if ($Command -eq "update") {
     $toolsetdir = Find-ToolsetDir -StartPath $Path -NoInteraction $NoInteraction
     try {
         Invoke-Activate -toolsetdir $toolsetdir -NoInteraction $NoInteraction
-        $tsVersion = ''
-        $mfstPath = "$toolsetdir\release-manifest.json"
-        if (Test-Path $mfstPath -ErrorAction SilentlyContinue) {
-            try { $tsVersion = (Get-Content $mfstPath -Raw | ConvertFrom-Json).version } catch {}
-        }
-        $vLabel = if ($tsVersion) { "version $tsVersion  ready" } else { "ready" }
-        Write-Host ""
-        Write-Host "  +---------------------------------------------+" -ForegroundColor Cyan
-        Write-Host "  |  _____  ___   ___  _     ____  _____   ____ |" -ForegroundColor Cyan
-        Write-Host "  | |_   _|/ _ \ / _ \| |  / ___| |  ___| |_  _||" -ForegroundColor Cyan
-        Write-Host "  |   | | | | | | | | | |   \___ \|  _|    | |  |" -ForegroundColor Cyan
-        Write-Host "  |   | | | |_| | |_| | |___ ___) | |___   | |  |" -ForegroundColor Cyan
-        Write-Host "  |   |_|  \___/ \___/|_____|____/|_____|  |_|  |" -ForegroundColor Cyan
-        Write-Host "  |                                             |" -ForegroundColor Cyan
-        Write-Host "  |  $($vLabel.PadRight(43))|" -ForegroundColor Cyan
-        Write-Host "  +---------------------------------------------+" -ForegroundColor Cyan
-        Write-Host ""
         if (-not $NoInteraction) {
             Read-Host "Press Enter to close"
         }

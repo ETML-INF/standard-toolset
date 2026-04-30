@@ -224,6 +224,40 @@ foreach ($name in @('toolset.ps1', 'setup.ps1')) {
     Assert "[B6] $name is ASCII-only" ($badCount -eq 0)
 }
 
+Write-Host "[B9] patchBuildPaths — build-time: marker comment + default path written into pack" -ForegroundColor Cyan
+# Verifies that build.ps1 patches files listed in patchBuildPaths BEFORE creating the zip:
+# inserts "# toolset:patch <template with __TOOLSET_SCOOP__>" and replaces buildScoopDir with
+# C:\inf-toolset\scoop so packs ship already usable at the default install location.
+# Leverages jq already installed by B1 — injects a fake config file into its installed dir.
+$b9BuildScoopDir = "C:\toolset-repo\build\scoop"
+$b9FakeConfig    = "$b9BuildScoopDir\apps\jq\current\fake-config.ini"
+Set-Content $b9FakeConfig "prefix=$b9BuildScoopDir\persist\jq" -Encoding UTF8
+
+$b9AppsJson = "C:\tmp\b9-apps.json"
+@(@{ name = "jq"; patchBuildPaths = @("fake-config.ini") }) |
+    ConvertTo-Json -Depth 5 | Set-Content $b9AppsJson -Encoding UTF8
+
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$env:RELEASE_VERSION = "test-99.0.9"
+pwsh -File "$repoRoot\build.ps1" $b9AppsJson 2>&1 | Out-Null
+$ec9 = $LASTEXITCODE
+
+$b9PackZip    = Get-ChildItem "$buildPacks\jq-*.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+$b9ExtractDir = "C:\tmp\b9-extract"
+if ($b9PackZip) { Expand-Archive $b9PackZip.FullName -DestinationPath $b9ExtractDir -Force }
+$b9ConfigFile = Get-ChildItem "$b9ExtractDir\jq\*\fake-config.ini" -ErrorAction SilentlyContinue | Select-Object -First 1
+$b9Config     = if ($b9ConfigFile) { Get-Content $b9ConfigFile -Raw } else { $null }
+
+Assert "[B9] exit 0"                         ($ec9 -eq 0)
+Assert "[B9] jq pack produced"               ($null -ne $b9PackZip)
+Assert "[B9] buildScoopDir gone from config" ($b9Config -notlike "*$b9BuildScoopDir*")
+Assert "[B9] default path in config"         ($b9Config -like "*C:\inf-toolset\scoop\persist\jq*")
+Assert "[B9] marker comment present"         ($b9Config -like "*# toolset:patch*__TOOLSET_SCOOP__*")
+
+Remove-Item $b9FakeConfig -Force -ErrorAction SilentlyContinue
+Remove-Item $b9AppsJson   -Force -ErrorAction SilentlyContinue
+if (Test-Path $b9ExtractDir) { Remove-Item $b9ExtractDir -Recurse -Force -ErrorAction SilentlyContinue }
+
 # Cleanup
 Remove-Item $testAppsJson -Force -ErrorAction SilentlyContinue
 
