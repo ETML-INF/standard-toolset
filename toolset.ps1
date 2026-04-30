@@ -40,47 +40,49 @@ function Find-ToolsetDir {
 
 function Invoke-NodeCheck {
     param([string]$toolsetdir, [bool]$NoInteraction)
-    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
-    if (-not $nodeCmd) { return }
+    $allNodes = @(Get-Command node -All -ErrorAction SilentlyContinue)
+    if ($allNodes.Count -eq 0) { return }
 
-    $nodePath = $nodeCmd.Source
     $pfx86 = ${env:ProgramFiles(x86)}
 
-    if ($nodePath.StartsWith($env:ProgramFiles) -or ($pfx86 -and $nodePath.StartsWith($pfx86))) {
-        Write-Host ""
-        Write-Host "+==================================================+" -ForegroundColor Red
-        Write-Host "|  WARNING: Node.js detected in Program Files!     |" -ForegroundColor Yellow
-        Write-Host "|  This will conflict with the toolset Node.js.    |" -ForegroundColor Yellow
-        Write-Host "+==================================================+" -ForegroundColor Red
-        Write-Host "  Detected: $nodePath" -ForegroundColor Yellow
-        Write-Host "  To uninstall: winget uninstall --name `"Node.js`"" -ForegroundColor Cyan
-        Write-Host ""
+    foreach ($nodeCmd in $allNodes) {
+        $nodePath = $nodeCmd.Source
+        if ($nodePath.StartsWith($toolsetdir)) { continue }  # expected, skip
 
-        if (-not $NoInteraction) {
-            $answer = Read-Host "Uninstall now? (requires elevation) [Y/N]"
-            if ($answer -match '^[Yy]$') {
-                try {
-                    $proc = Start-Process powershell -Verb RunAs -Wait -PassThru `
-                            -ArgumentList "-Command winget uninstall --name 'Node.js'"
-                    if ($proc.ExitCode -eq 0) {
-                        Write-Host "Node.js uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
-                        exit 0
-                    } else {
-                        Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually, then re-run toolset.ps1."
+        if ($nodePath.StartsWith($env:ProgramFiles) -or ($pfx86 -and $nodePath.StartsWith($pfx86))) {
+            Write-Host ""
+            Write-Host "+==================================================+" -ForegroundColor Red
+            Write-Host "|  WARNING: Node.js detected in Program Files!     |" -ForegroundColor Yellow
+            Write-Host "|  This will conflict with the toolset Node.js.    |" -ForegroundColor Yellow
+            Write-Host "+==================================================+" -ForegroundColor Red
+            Write-Host "  Detected: $nodePath" -ForegroundColor Yellow
+            Write-Host "  To uninstall: winget uninstall --name `"Node.js`"" -ForegroundColor Cyan
+            Write-Host ""
+
+            if (-not $NoInteraction) {
+                $answer = Read-Host "Uninstall now? (requires elevation) [Y/N]"
+                if ($answer -match '^[Yy]$') {
+                    try {
+                        $proc = Start-Process powershell -Verb RunAs -Wait -PassThru `
+                                -ArgumentList "-Command winget uninstall --name 'Node.js'"
+                        if ($proc.ExitCode -eq 0) {
+                            Write-Host "Node.js uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
+                            exit 0
+                        } else {
+                            Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually, then re-run toolset.ps1."
+                        }
+                    } catch {
+                        Write-Warning "Uninstall failed: $_. Please uninstall manually, then re-run toolset.ps1."
                     }
-                } catch {
-                    Write-Warning "Uninstall failed: $_. Please uninstall manually, then re-run toolset.ps1."
+                } else {
+                    Write-Warning "Please uninstall Node.js manually, then re-run toolset.ps1."
                 }
             } else {
-                Write-Warning "Please uninstall Node.js manually, then re-run toolset.ps1."
+                Write-Warning "Admin-installed Node.js at $nodePath. Uninstall it manually: winget uninstall --name 'Node.js'"
             }
         } else {
-            Write-Warning "Admin-installed Node.js at $nodePath. Uninstall it manually: winget uninstall --name 'Node.js'"
+            Write-Warning "Node.js found at unexpected location: $nodePath. This may conflict with the toolset."
         }
-    } elseif ($nodePath.StartsWith($toolsetdir)) {
-        # Expected  - toolset-managed node, all good
-    } else {
-        Write-Warning "Node.js found at unexpected location: $nodePath. This may conflict with the toolset."
     }
 }
 
