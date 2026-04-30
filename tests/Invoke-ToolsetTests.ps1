@@ -2,6 +2,8 @@
   Container test runner. Runs inside Windows Nano Server.
   Exit 0 = all pass, Exit 1 = any failure.
 #>
+param([string[]]$Scenario = @())
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 $toolkit = "C:\toolset-repo\toolset.ps1"
@@ -10,6 +12,10 @@ $fail = 0
 
 . (Join-Path $PSScriptRoot "Test-Helpers.ps1")
 
+function Test-Scenario { param([string]$n) -not $Scenario -or $n -in $Scenario }
+
+
+if (Test-Scenario '1') {
 Write-Host "[1] Fresh install" -ForegroundColor Cyan
 $p = "C:\tmp\s1p"; $d = "C:\tmp\s1d"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.0.0"},@{Name="app2";Version="2.0.0"})
@@ -17,6 +23,9 @@ pwsh -File $toolkit update -Path $d -ManifestSource "$p\release-manifest.json" -
 Assert "app1 installed" (Test-Path "$d\scoop\apps\app1\current\manifest.json")
 Assert "app2 installed" (Test-Path "$d\scoop\apps\app2\current\manifest.json")
 
+}
+
+if (Test-Scenario '2') {
 Write-Host "[2] Partial update" -ForegroundColor Cyan
 $p = "C:\tmp\s2p"; $d = "C:\tmp\s2d"
 foreach ($x in @("app1/1.0.0","app2/2.0.0")) {
@@ -31,6 +40,9 @@ $v2 = (Get-Content "$d\scoop\apps\app2\current\manifest.json"|ConvertFrom-Json).
 Assert "app1 updated to 1.1.0"  ($v1 -eq "1.1.0")
 Assert "app2 still at 2.0.0"    ($v2 -eq "2.0.0")
 
+}
+
+if (Test-Scenario '3a') {
 Write-Host "[3a] -Clean removes orphan" -ForegroundColor Cyan
 $p = "C:\tmp\s3ap"; $d = "C:\tmp\s3ad"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.0.0"})
@@ -39,6 +51,9 @@ $od = "$d\scoop\apps\orphan\current"; New-Item -Force -ItemType Directory $od | 
 pwsh -File $toolkit update -Path $d -ManifestSource "$p\release-manifest.json" -PackSource $p -NoInteraction -Clean
 Assert "orphan removed" (-not (Test-Path "$d\scoop\apps\orphan"))
 
+}
+
+if (Test-Scenario '3b') {
 Write-Host "[3b] -NoInteraction keeps orphan" -ForegroundColor Cyan
 $p = "C:\tmp\s3bp"; $d = "C:\tmp\s3bd"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.0.0"})
@@ -47,6 +62,9 @@ $od = "$d\scoop\apps\orphan\current"; New-Item -Force -ItemType Directory $od | 
 pwsh -File $toolkit update -Path $d -ManifestSource "$p\release-manifest.json" -PackSource $p -NoInteraction
 Assert "orphan kept" (Test-Path "$d\scoop\apps\orphan")
 
+}
+
+if (Test-Scenario '4') {
 Write-Host "[4] Pack missing — continues" -ForegroundColor Cyan
 $p = "C:\tmp\s4p"; $d = "C:\tmp\s4d"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.0.0"},@{Name="app2";Version="2.0.0"})
@@ -56,12 +74,18 @@ $ec = $LASTEXITCODE
 Assert "app1 installed despite missing pack"  (Test-Path "$d\scoop\apps\app1\current\manifest.json")
 Assert "non-fatal exit"                       ($ec -eq 0)
 
+}
+
+if (Test-Scenario '5') {
 Write-Host "[5] No sources available" -ForegroundColor Cyan
 $d = "C:\tmp\s5d"
 pwsh -File $toolkit update -Path $d -NoInteraction
 $ec = $LASTEXITCODE
 Assert "exits non-zero" ($ec -ne 0)
 
+}
+
+if (Test-Scenario '6') {
 Write-Host "[6] Status — exit 1 when updates available" -ForegroundColor Cyan
 $p = "C:\tmp\s6p"; $d = "C:\tmp\s6d"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.1.0"}) -ManifestVersion "2.0.0"
@@ -73,6 +97,9 @@ Assert "[6] status shows app1"     ($out -match "app1")
 Assert "[6] exit 1 (pending)"      ($ec -eq 1)
 Remove-TestDir $d,$p
 
+}
+
+if (Test-Scenario '7') {
 Write-Host "[7] Status — exit 0 when up to date" -ForegroundColor Cyan
 $p = "C:\tmp\s7p"; $d = "C:\tmp\s7d"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.0.0"}) -ManifestVersion "2.0.0"
@@ -83,6 +110,9 @@ $ec = $LASTEXITCODE
 Assert "[7] exit 0 (up to date)"   ($ec -eq 0)
 Remove-TestDir $d,$p
 
+}
+
+if (Test-Scenario '8') {
 Write-Host "[8] Update with -Version" -ForegroundColor Cyan
 $p = "C:\tmp\s8p"; $d = "C:\tmp\s8d"
 & $helper -OutputDir $p -Apps @(@{Name="app1";Version="1.0.0"}) -ManifestVersion "5.0.0"
@@ -91,6 +121,9 @@ pwsh -File $toolkit update -Path $d `
 Assert "[8] app1 installed with -Version" (Test-Path "$d\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d,$p
 
+}
+
+if (Test-Scenario '9') {
 Write-Host "[9] Activation — shim path replacement" -ForegroundColor Cyan
 $d9 = "C:\tmp\s9d"; $sd9 = "$d9\scoop"
 New-FakeScoopStub -ScoopDir $sd9
@@ -102,6 +135,9 @@ Assert "[9] shim: old path gone" ((Get-Content "$sd9\shims\scoop" -Raw) -notlike
 Assert "[9] shim: new path set"  ((Get-Content "$sd9\shims\scoop" -Raw) -like "*$sd9*")
 Remove-TestDir $d9
 
+}
+
+if (Test-Scenario '10') {
 Write-Host "[10] Activation — reg file path replacement" -ForegroundColor Cyan
 $d10 = "C:\tmp\s10d"; $sd10 = "$d10\scoop"
 New-FakeScoopStub -ScoopDir $sd10
@@ -113,6 +149,9 @@ pwsh -File $toolkit -Path $d10 -NoInteraction
 Assert "[10] reg: old path gone"  ((Get-Content "$regDir\testapp.reg" -Raw) -notlike '*was-here*')
 Remove-TestDir $d10
 
+}
+
+if (Test-Scenario '12') {
 Write-Host "[12] Activation — paths2DropToEnableMultiUser cleanup" -ForegroundColor Cyan
 $d12 = "C:\tmp\s12d"; $sd12 = "$d12\scoop"
 New-FakeScoopStub -ScoopDir $sd12
@@ -136,6 +175,9 @@ Assert "[12] data dir removed"  (-not (Test-Path "$sd12\apps\fakeapp\current\dat
 Assert "[12] .portable removed" (-not (Test-Path "$sd12\apps\fakeapp\current\.portable"))
 Remove-TestDir $d12
 
+}
+
+if (Test-Scenario '13') {
 Write-Host "[13] Pre-extracted pack directory on PackSource" -ForegroundColor Cyan
 $d13 = "C:\tmp\s13d"; $sd13 = "$d13\scoop"; $ps13 = "C:\tmp\s13p"
 New-Item -Force -ItemType Directory $ps13 | Out-Null
@@ -152,6 +194,9 @@ Assert "[13] app1 installed" (Test-Path "$sd13\apps\app1\current\manifest.json")
 Remove-TestDir $d13
 Remove-TestDir $ps13
 
+}
+
+if (Test-Scenario '14') {
 Write-Host "[14] Pre-extracted dir version mismatch falls back to zip" -ForegroundColor Cyan
 $d14 = "C:\tmp\s14d"; $sd14 = "$d14\scoop"; $ps14 = "C:\tmp\s14p"
 & $helper -OutputDir $ps14 -Apps @(@{Name="app1";Version="1.0.0"})
@@ -167,6 +212,9 @@ Assert "[14] correct version from zip" ($installedVer14 -eq "1.0.0")
 Remove-TestDir $d14
 Remove-TestDir $ps14
 
+}
+
+if (Test-Scenario '15') {
 Write-Host "[15] Pre-extracted dir file-count mismatch falls back to zip (NoInteraction)" -ForegroundColor Cyan
 $d15 = "C:\tmp\s15d"; $sd15 = "$d15\scoop"; $ps15 = "C:\tmp\s15p"
 & $helper -OutputDir $ps15 -Apps @(@{Name="app1";Version="1.0.0"})
@@ -184,6 +232,9 @@ Assert "[15] unexpected file not present" (-not (Test-Path "$sd15\apps\app1\curr
 Remove-TestDir $d15
 Remove-TestDir $ps15
 
+}
+
+if (Test-Scenario '16') {
 Write-Host "[16] Activate — NoInteraction with missing toolset → exit non-zero" -ForegroundColor Cyan
 $d16 = "C:\tmp\s16d-unique-missing-toolset-xyz"
 Remove-TestDir $d16   # ensure it doesn't exist
@@ -192,6 +243,9 @@ pwsh -File $toolkit -Path $d16 -NoInteraction 2>$null
 $ec16 = $LASTEXITCODE
 Assert "[16] exits non-zero when toolset missing + NoInteraction" ($ec16 -ne 0)
 
+}
+
+if (Test-Scenario '17') {
 Write-Host "[17] Activate — broken install (no scoop.ps1) falls back to update" -ForegroundColor Cyan
 $d17 = "C:\tmp\s17d"; $ps17 = "C:\tmp\s17p"
 & $helper -OutputDir $ps17 -Apps @(@{Name="app1";Version="1.0.0"})
@@ -206,6 +260,9 @@ Assert "[17] app1 installed via update fallback"   (Test-Path "$d17\scoop\apps\a
 Remove-TestDir $d17
 Remove-TestDir $ps17
 
+}
+
+if (Test-Scenario '18') {
 Write-Host "[18] Update saves release-manifest.json to toolset dir" -ForegroundColor Cyan
 $d18 = "C:\tmp\s18d"; $ps18 = "C:\tmp\s18p"
 & $helper -OutputDir $ps18 -Apps @(@{Name="app1";Version="1.0.0"})
@@ -219,6 +276,9 @@ Assert "[18] saved manifest has apps"      ($savedMf18 -and $savedMf18.apps.Coun
 Remove-TestDir $d18
 Remove-TestDir $ps18
 
+}
+
+if (Test-Scenario '19') {
 Write-Host "[19] Count mismatch via real zip: zip has 2 files, dir has 1 — NoInteraction uses zip" -ForegroundColor Cyan
 $d19 = "C:\tmp\s19d"; $ps19 = "C:\tmp\s19p"; $src19 = "C:\tmp\s19src"
 # Build zip manually so Get-ZipEntryCount is tested against real Compress-Archive output
@@ -242,6 +302,9 @@ Assert "[19] count mismatch warning"    ($out19 -match "files but")
 Assert "[19] 'Using zip.' message"      ($out19 -match "Using zip\.")
 Remove-TestDir $d19, $ps19, $src19
 
+}
+
+if (Test-Scenario '20') {
 Write-Host "[20] Pack with .git dir installs correctly (no .git-force hack needed)" -ForegroundColor Cyan
 $d20 = "C:\tmp\s20d"; $ps20 = "C:\tmp\s20p"
 New-Item -Force -ItemType Directory $ps20 | Out-Null
@@ -270,6 +333,9 @@ Assert "[20] .git/HEAD present"        (Test-Path "$d20\scoop\apps\app1\current\
 Assert "[20] no .git-force residue"    (-not (Test-Path "$d20\scoop\apps\app1\current\.git-force"))
 Remove-TestDir $d20, $ps20
 
+}
+
+if (Test-Scenario '21') {
 Write-Host "[21] Activation — missing scoop.ps1 emits warning, exits 0" -ForegroundColor Cyan
 $d21 = "C:\tmp\s21d"; $sd21 = "$d21\scoop"
 # Deliberately omit scoop.ps1 — no apps\scoop\current\bin\scoop.ps1
@@ -283,6 +349,9 @@ Assert "[21] exit 0 despite missing scoop.ps1" ($ec21 -eq 0)
 Assert "[21] warning emitted"                  ($out21 -match "scoop.ps1 not found")
 Remove-TestDir $d21
 
+}
+
+if (Test-Scenario '22') {
 Write-Host "[22] Integrity — missing file triggers repair" -ForegroundColor Cyan
 $d22 = "C:\tmp\s22d"; $ps22 = "C:\tmp\s22p"
 Install-FreshApp -PackDir $ps22 -InstallDir $d22
@@ -295,6 +364,9 @@ Assert "[22] exit 0 after repair"           ($ec22 -eq 0)
 Assert "[22] manifest.json restored"        (Test-Path "$d22\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d22, $ps22
 
+}
+
+if (Test-Scenario '23') {
 Write-Host "[23] Integrity — size mismatch triggers repair" -ForegroundColor Cyan
 $d23 = "C:\tmp\s23d"; $ps23 = "C:\tmp\s23p"
 Install-FreshApp -PackDir $ps23 -InstallDir $d23
@@ -312,6 +384,9 @@ $repaired23 = (Get-Content "$d23\scoop\apps\app1\current\manifest.json" -Raw) -n
 Assert "[23] manifest.json restored clean"  ($repaired23)
 Remove-TestDir $d23, $ps23
 
+}
+
+if (Test-Scenario '24') {
 Write-Host "[24] -ForceReinstall reinstalls up-to-date app" -ForegroundColor Cyan
 $d24 = "C:\tmp\s24d"; $ps24 = "C:\tmp\s24p"
 Install-FreshApp -PackDir $ps24 -InstallDir $d24
@@ -322,6 +397,9 @@ Assert "[24] [!] shown for forced app"      ($out24 -match "\[!\]")
 Assert "[24] manifest.json present"         (Test-Path "$d24\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d24, $ps24
 
+}
+
+if (Test-Scenario '25') {
 Write-Host "[25] Integrity pass — no download when healthy" -ForegroundColor Cyan
 $d25 = "C:\tmp\s25d"; $ps25 = "C:\tmp\s25p"
 Install-FreshApp -PackDir $ps25 -InstallDir $d25
@@ -334,6 +412,9 @@ Assert "[25] no FAILED in output"           ($out25 -notmatch "FAILED")
 Assert "[25] [=] shown (up to date)"        ($out25 -match "\[=\]")
 Remove-TestDir $d25, $ps25
 
+}
+
+if (Test-Scenario '26') {
 Write-Host "[26] -LogFile creates log file with expected output" -ForegroundColor Cyan
 $d26 = "C:\tmp\s26d"; $ps26 = "C:\tmp\s26p"
 & $helper -OutputDir $ps26 -Apps @(@{Name="app1";Version="1.0.0"})
@@ -358,6 +439,9 @@ Assert "[26] logs are separate files"      ($log26a -ne $log26b)
 Remove-TestDir $d26, $d26b, $ps26
 Remove-Item $log26a, $log26b -Force -ErrorAction SilentlyContinue
 
+}
+
+if (Test-Scenario '27') {
 Write-Host "[27] packUrl — pack fetched from explicit URL when absent from local source" -ForegroundColor Cyan
 $d27 = "C:\tmp\s27d"; $ps27 = "C:\tmp\s27p"; $ps27b = "C:\tmp\s27pb"
 & $helper -OutputDir $ps27 -Apps @(@{Name="app1";Version="1.0.0"})
@@ -397,6 +481,9 @@ Assert "[27] exit 0"         ($ec27 -eq 0)
 Assert "[27] app1 installed" (Test-Path "$d27\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d27, $ps27, $ps27b
 
+}
+
+if (Test-Scenario '28') {
 Write-Host "[28] Fresh install — scoop pack bootstraps current\ junction" -ForegroundColor Cyan
 $d28 = "C:\tmp\s28d"; $ps28 = "C:\tmp\s28p"
 New-Item -Force -ItemType Directory $ps28 | Out-Null
@@ -433,6 +520,9 @@ Assert "[28] scoop.ps1 accessible"   (Test-Path "$d28\scoop\apps\scoop\current\b
 Assert "[28] app1 installed"         (Test-Path "$d28\scoop\apps\app1\current\manifest.json")
 Remove-TestDir $d28, $ps28
 
+}
+
+if (Test-Scenario '29') {
 Write-Host "[29] Update — old version with scoop-style junctions (persist + current) removed cleanly" -ForegroundColor Cyan
 # Reproduces the prod "Access Denied" failure: Remove-Item -Recurse cannot traverse a dir
 # tree that contains junction points.  Mimics a real scoop install:
@@ -469,6 +559,9 @@ Assert "[29] old version dir removed" (-not (Test-Path "$appDir29\1.0.0"))
 Assert "[29] persist data untouched"  (Test-Path $persistDir29)
 Remove-TestDir $d29, $ps29
 
+}
+
+if (Test-Scenario '30') {
 Write-Host "[30] Version detection — versioned dir preferred over stale current\ junction" -ForegroundColor Cyan
 # Scenario: the new version dir has already been extracted (e.g. from a prior partial update)
 # but the current\ junction still points to the old version.  Get-LocalAppVersions must
@@ -500,6 +593,9 @@ Assert "[30] [=] shown (app is up to date)"             ($out30 -match "\[=\]")
 Assert "[30] no FAILED in output"                       ($out30 -notmatch "FAILED")
 Remove-TestDir $d30, $ps30
 
+}
+
+if (Test-Scenario '31') {
 Write-Host "[31] Integrity — persist junction with user files does not trigger repair" -ForegroundColor Cyan
 # Scenario: an app is installed cleanly (fileCount=1: manifest.json only).  Scoop then
 # creates a persist junction inside the versioned dir pointing to a user-writable directory.
@@ -527,6 +623,9 @@ Assert "[31] no FAILED in output"                               ($out31 -notmatc
 Assert "[31] persist data untouched"                            (Test-Path "$persist31\user-settings.json")
 Remove-TestDir $d31, $ps31, $persist31
 
+}
+
+if (Test-Scenario '32') {
 Write-Host "[32] Integrity — integrityExcludePaths suppresses extra files in real subdir" -ForegroundColor Cyan
 # Scenario: cmder-style app has a real subdir (vendor\conemu-maximus5) that accumulates
 # user files after install. The manifest lists it in integrityExcludePaths so those extra
@@ -569,6 +668,9 @@ Assert "[32] [=] shown (integrity passes)"                  ($out32 -match "\[=\
 Assert "[32] no FAILED in output"                           ($out32 -notmatch "FAILED")
 Remove-TestDir $d32, $ps32
 
+}
+
+if (Test-Scenario '33') {
 Write-Host "[33] Remove-Junction removes a broken junction cleanly" -ForegroundColor Cyan
 # A junction whose target no longer exists (broken junction) must be removable without error.
 $brokenTarget33 = "C:\tmp\s33target"
@@ -590,6 +692,9 @@ Assert "[33] broken junction entry removed" (-not (Test-Path $brokenJunction33) 
 Remove-TestDir $brokenTarget33   # already gone, no-op
 
 
+}
+
+if (Test-Scenario '34') {
 Write-Host "[34] Integrity -- exclusion works with versioned dir layout (scoop real structure)" -ForegroundColor Cyan
 # Scenario: app is installed as scoop\apps\app34\1.0.0\ (versioned dir) with current\ as a
 # junction.  Test-AppIntegrity measures from 1.0.0\ as root.  Excluded path "user-cache" must
@@ -631,6 +736,9 @@ Assert "[34] [!] when non-excluded file is added"              ($outC34 -match "
 Remove-TestDir $d34, $ps34
 
 
+}
+
+if (Test-Scenario '35') {
 Write-Host "[35] Private apps merged from LDrivePath private-apps.json" -ForegroundColor Cyan
 # Scenario: CI manifest has no private apps.  Client machine has private-apps.json on L:\.
 # Merge-PrivateApps must append the private app to the manifest so toolset.ps1 installs it.
@@ -668,6 +776,9 @@ Assert "[35] private apps merged message shown"   ($out35 -match "private app")
 Remove-TestDir $d35, $ps35, $ldrive35
 
 
+}
+
+if (Test-Scenario '35b') {
 Write-Host "[35b] Private app installs to private\apps directory, not scoop\apps" -ForegroundColor Cyan
 $d35b      = "C:\tmp\s35bd"
 $ps35b     = "C:\tmp\s35bp"
@@ -689,6 +800,9 @@ Assert "[35b] public app not in private\apps dir"         (-not (Test-Path "$d35
 Remove-TestDir $d35b, $ps35b, $ldrive35b
 
 
+}
+
+if (Test-Scenario '35c') {
 Write-Host "[35c] Private orphan survives -Clean, removed only by -CleanPrivate" -ForegroundColor Cyan
 # Pass A: install secapp (private, from LDrive) alongside app1 (public)
 $d35c      = "C:\tmp\s35cd"
@@ -718,6 +832,9 @@ Assert "[35c] app1 still present after -CleanPrivate"         (Test-Path "$d35c\
 Remove-TestDir $d35c, $ps35c, $ldrive35c
 
 
+}
+
+if (Test-Scenario '36a') {
 Write-Host "[36a] Activation -- scoop current\ real folder WITH scoop.ps1 (silent wrong-version regression)" -ForegroundColor Cyan
 # Prior manual install: current\ is a real folder containing bin\scoop.ps1 (v0.4.0).
 # A new pack was extracted alongside it as a versioned dir (0.5.0\).
@@ -740,6 +857,9 @@ Assert "[36a] new scoop.ps1 reachable via current" (Test-Path "$sd36a\apps\scoop
 Assert "[36a] old content preserved as 0.4.0\"     (Test-Path "$sd36a\apps\scoop\0.4.0\manifest.json")
 Remove-TestDir $d36a
 
+}
+
+if (Test-Scenario '36b') {
 Write-Host "[36b] Activation -- scoop current\ real folder WITHOUT scoop.ps1 (access denied regression)" -ForegroundColor Cyan
 # Partial/migrated install: current\ is a non-empty real folder WITHOUT bin\scoop.ps1.
 # Without the fix: bootstrap is entered, Remove-Item -Force on a non-empty dir -> access denied.
@@ -761,6 +881,9 @@ Assert "[36b] new scoop.ps1 reachable via current" (Test-Path "$sd36b\apps\scoop
 Assert "[36b] old content preserved as 0.3.0\"     (Test-Path "$sd36b\apps\scoop\0.3.0\manifest.json")
 Remove-TestDir $d36b
 
+}
+
+if (Test-Scenario '36c') {
 Write-Host "[36c] Activation -- non-scoop app current\ real folder with new versioned dir" -ForegroundColor Cyan
 # Without the fix: junction loop skips real dirs (# real dir, do not touch), new version ignored.
 $d36c = "C:\tmp\s36cd"; $sd36c = "$d36c\scoop"
@@ -784,6 +907,9 @@ Assert "[36c] junction points to 2.0.0"            ($ver36c -eq "2.0.0")
 Assert "[36c] old 1.0.0 content preserved"         (Test-Path "$sd36c\apps\myapp\1.0.0\manifest.json")
 Remove-TestDir $d36c
 
+}
+
+if (Test-Scenario '37') {
 Write-Host "[37] -Clean removes orphaned app with persist junction (no access denied)" -ForegroundColor Cyan
 # Reproduces access denied: Remove-Item -Recurse on an app dir containing a persist junction
 # fails in PS5.1 because it follows the junction and hits the persist target.
@@ -807,6 +933,9 @@ Assert "[37] persist target untouched"        (Test-Path "$persistTgt37\userfile
 Assert "[37] keepapp still installed"         (Test-Path "$d37\scoop\apps\keepapp\current\manifest.json")
 Remove-TestDir $d37, $ps37
 
+}
+
+if (Test-Scenario '38') {
 Write-Host "[38] Remove-DirSafe — removes tree with junctions at multiple depths, targets untouched" -ForegroundColor Cyan
 # Verifies the consolidated Remove-DirSafe helper works for any nesting depth.
 # Equivalent concern to Remove-StaleVersionDirs / orphan removal but tested directly.
@@ -842,6 +971,9 @@ Assert "[38] nested target untouched"       (Test-Path "$tgt38b\file.txt")
 Assert "[38] no-op on missing path"         { try { Remove-DirSafe "C:\tmp\s38-nonexistent"; $true } catch { $false } }
 Remove-TestDir $tgt38a, $tgt38b
 
+}
+
+if (Test-Scenario '39') {
 Write-Host "[39] Remove-DirSafe removes a broken junction passed as root (no silent no-op)" -ForegroundColor Cyan
 # Regression: Test-Path returns $false for a broken junction in PS5.1, so the original
 # guard silently skipped removal.  Fix: Test-IsReparsePoint detects it and calls Remove-Junction.
@@ -858,6 +990,9 @@ Remove-DirSafe $junc39
 $afterAttr39 = try { [System.IO.File]::GetAttributes($junc39) -band [System.IO.FileAttributes]::ReparsePoint } catch { 0 }
 Assert "[39] broken junction removed by Remove-DirSafe" (-not (Test-Path $junc39) -and -not ([bool]$afterAttr39))
 
+}
+
+if (Test-Scenario '40') {
 Write-Host "[40] Activation recreates a broken current\ junction for a non-scoop app" -ForegroundColor Cyan
 # Reproduces: app1\current\ is a dangling junction (points to a nonexistent target).
 # Test-IsReparsePoint correctly detects it; activation must remove it and create a fresh
@@ -882,6 +1017,9 @@ Assert "[40] current\ target resolves after activation" (Test-Path $junc40)
 Assert "[40] manifest.json accessible via current\"     (Test-Path "$junc40\manifest.json")
 Remove-TestDir $p40, $d40
 
+}
+
+if (Test-Scenario '40b') {
 Write-Host "[40b] Activation converts a real current\ folder to a junction (fresh-install scenario)" -ForegroundColor Cyan
 # Fake packs extract into app\current\ (not app\<version>\), so after the first update current\
 # is a real directory.  Activation must detect this, rename current\ to the versioned dir,
@@ -897,6 +1035,9 @@ Assert "[40b] manifest.json accessible via current\"          (Test-Path "$junc4
 Assert "[40b] versioned dir app1\1.0.0\ exists"               (Test-Path "$d40b\scoop\apps\app1\1.0.0")
 Remove-TestDir $p40b, $d40b
 
+}
+
+if (Test-Scenario '41a') {
 Write-Host "[41a] patchBuildPaths — listed files patched (.npmrc)" -ForegroundColor Cyan
 $d41a = "C:\tmp\s41ad"; $ps41a = "C:\tmp\s41ap"; $fakeCIScoop41 = "C:\fake-ci-scoop"
 $tmp41a = "$env:TEMP\s41a-$(Get-Random)"
@@ -920,6 +1061,9 @@ Assert "[41a] real scoop path in .npmrc"        ($npmrc41a -like "*\scoop\persis
 Assert "[41a] marker comment added for future re-patch" ($npmrc41a -like "*# toolset:patch*__TOOLSET_SCOOP__*")
 Remove-TestDir $d41a, $ps41a
 
+}
+
+if (Test-Scenario '41b') {
 Write-Host "[41b] patchBuildPaths — listed file (config.ini) patched" -ForegroundColor Cyan
 $d41b = "C:\tmp\s41bd"; $ps41b = "C:\tmp\s41bp"; $fakeCIScoop41b = "C:\fake-ci-scoop-b"
 $tmp41b = "$env:TEMP\s41b-$(Get-Random)"
@@ -942,6 +1086,9 @@ Assert "[41b] CI scoop path replaced in config" ($cfg41b -notlike "*$fakeCIScoop
 Assert "[41b] real scoop path in config"        ($cfg41b -like "*\scoop\persist\myapp*")
 Remove-TestDir $d41b, $ps41b
 
+}
+
+if (Test-Scenario '41c') {
 Write-Host "[41c] patchBuildPaths — app WITHOUT flag is NOT patched" -ForegroundColor Cyan
 $d41c = "C:\tmp\s41cd"; $ps41c = "C:\tmp\s41cp"; $fakeCIScoop41c = "C:\fake-ci-scoop-c"
 $tmp41c = "$env:TEMP\s41c-$(Get-Random)"
@@ -963,6 +1110,9 @@ Assert "[41c] CI path NOT replaced (no flag)"  ($settings41c -like "*$fakeCIScoo
 Remove-TestDir $d41c, $ps41c
 
 
+}
+
+if (Test-Scenario '42') {
 Write-Host "[42] Activation creates Start Menu shortcuts declared in manifest" -ForegroundColor Cyan
 # App manifest declares shortcuts:[["myapp.exe","My App"]]; activation must create the .lnk file.
 $d42 = "C:\tmp\s42d"; $sd42 = "$d42\scoop"
@@ -986,6 +1136,9 @@ Remove-Item $lnk42 -Force -ErrorAction SilentlyContinue
 Remove-TestDir $d42
 
 
+}
+
+if (Test-Scenario '43') {
 Write-Host "[43] Pre-status shows [^] for apps to install during update" -ForegroundColor Cyan
 $d43 = "C:\tmp\s43d"; $ps43 = "C:\tmp\s43p"
 & $helper -OutputDir $ps43 -Apps @(@{Name="app1"; Version="1.0.0"})
@@ -994,6 +1147,9 @@ $out43 = pwsh -File $toolkit update -Path $d43 -ManifestSource "$ps43\release-ma
 Assert "[43] [+] shown for app to install" ($out43 -match "\[\+\]")
 Remove-TestDir $d43, $ps43
 
+}
+
+if (Test-Scenario '44') {
 Write-Host "[44] Post-status shows [*] for successfully installed apps" -ForegroundColor Cyan
 $d44 = "C:\tmp\s44d"; $ps44 = "C:\tmp\s44p"
 & $helper -OutputDir $ps44 -Apps @(@{Name="app1"; Version="1.0.0"})
@@ -1002,6 +1158,9 @@ $out44 = pwsh -File $toolkit update -Path $d44 -ManifestSource "$ps44\release-ma
 Assert "[44] [*] shown after successful install" ($out44 -match "\[\*\]")
 Remove-TestDir $d44, $ps44
 
+}
+
+if (Test-Scenario '45') {
 Write-Host "[45] Post-status shows [x] for failed and [*] for successful" -ForegroundColor Cyan
 $d45 = "C:\tmp\s45d"; $ps45 = "C:\tmp\s45p"
 & $helper -OutputDir $ps45 -Apps @(@{Name="app1"; Version="1.0.0"}, @{Name="app2"; Version="2.0.0"})
@@ -1012,6 +1171,9 @@ Assert "[45] [*] shown for successful app"  ($out45 -match "\[\*\]")
 Assert "[45] [x] shown for failed app"      ($out45 -match "\[x\]")
 Remove-TestDir $d45, $ps45
 
+}
+
+if (Test-Scenario '46') {
 Write-Host "[46] Broken current junction (prior stale-dir rename) is repaired on next update" -ForegroundColor Cyan
 # Simulates: previous update renamed 1.0.0->1.0.0-toBeDeleted but junction was never
 # swung (Remove-Junction failed on broken reparse point).
@@ -1034,6 +1196,9 @@ Assert "[46] junction valid (not broken)" ($null -ne $jItem46)
 #Assert "[46] v2.0.0 installed"            (Test-Path "$appDir46\2.0.0\manifest.json")
 Remove-TestDir $d46, $ps46
 
+}
+
+if (Test-Scenario '47') {
 Write-Host "[47] patchBuildPaths -- node_modules\npm\npmrc patched when listed in patchBuildPaths" -ForegroundColor Cyan
 $d47 = "C:\tmp\s47d"; $ps47 = "C:\tmp\s47p"; $fakeCIScoop47 = "C:\fake-ci-scoop47"
 $tmp47 = "$env:TEMP\s47-$(Get-Random)"
@@ -1057,6 +1222,9 @@ Assert "[47] node_modules\npm\npmrc has real path" ($nodeNpmrc47 -like "*\scoop\
 Remove-TestDir $d47, $ps47
 
 
+}
+
+if (Test-Scenario '48') {
 Write-Host "[48] Private app: versioned pack installs to private\apps, shortcuts and current\ work" -ForegroundColor Cyan
 $d48      = "C:\tmp\s48d"
 $ps48     = "C:\tmp\s48p"
@@ -1092,6 +1260,9 @@ Assert "[48] shortcuts entry has correct display name"      ($secretApp48 -and $
 Remove-TestDir $d48, $ps48, $ldrive48
 
 
+}
+
+if (Test-Scenario '49') {
 Write-Host "[49] Private app: flat zip (arbitrary root dir, no version subdir) installs correctly" -ForegroundColor Cyan
 # Scenario: zip has one arbitrary root dir (e.g. created by 7-zip from a folder named "ROOT"),
 # contents are files and subdirs directly inside - no version subdir.
@@ -1122,6 +1293,9 @@ Assert "[49] current junction points to version dir"   (Test-Path "$d49\private\
 Remove-TestDir $d49, $ps49, $ldrive49
 
 
+}
+
+if (Test-Scenario '50') {
 Write-Host "[50] Integrity repair removes extra files (no infinite reinstall loop)" -ForegroundColor Cyan
 # Scenario: an extra file is injected into the versioned dir after install.
 # The integrity check detects fileCount mismatch and triggers repair.
@@ -1149,6 +1323,9 @@ Assert "[50] no repair on second run"        ($out50b -notmatch "\[!\]")
 Assert "[50] FAILED not in second run"       ($out50b -notmatch "FAILED")
 Remove-TestDir $d50, $ps50
 
+}
+
+if (Test-Scenario '51') {
 Write-Host "[51] Integrity -- scoop persist file/dir entries do not trigger repair after scoop reset" -ForegroundColor Cyan
 # Scenario: the pack ships rclone.conf (0-byte placeholder) and manifest.json declares
 # persist entries.  scoop reset renames rclone.conf -> rclone.conf.original (0-byte,
@@ -1203,6 +1380,9 @@ Assert "[51] no FAILED in output"                        ($out51 -notmatch "FAIL
 Assert "[51] persist data untouched"                     (Test-Path "$persist51\cached.dat")
 Remove-TestDir $d51, $ps51, $persist51
 
+}
+
+if (Test-Scenario '52') {
 Write-Host "[52] patchBuildPaths -- marker comment: sentinel path replaced with real scoopdir" -ForegroundColor Cyan
 # Pack ships with default path (C:\inf-toolset\scoop) already baked in + marker comment template.
 # When installed to a non-default path the marker lets activation find and re-patch the value.
@@ -1230,6 +1410,9 @@ Assert "[52] real scoopdir in .npmrc"                  ($npmrc52 -like "*$d52\sc
 Assert "[52] marker comment preserved"                 ($npmrc52 -like "*# toolset:patch*__TOOLSET_SCOOP__*")
 Remove-TestDir $d52, $ps52
 
+}
+
+if (Test-Scenario '53') {
 Write-Host "[53] patchBuildPaths -- marker comment: idempotent when value already matches scoopdir" -ForegroundColor Cyan
 # If the .npmrc already has the correct scoopdir the file must not be rewritten spuriously.
 $d53 = "C:\tmp\s53d"; $ps53 = "C:\tmp\s53p"
@@ -1256,6 +1439,9 @@ Assert "[53] correct scoopdir present"         ($npmrc53 -like "*$scoopdir53\per
 Assert "[53] marker comment preserved"         ($npmrc53 -like "*# toolset:patch*__TOOLSET_SCOOP__*")
 Remove-TestDir $d53, $ps53
 
+}
+
+if (Test-Scenario '54') {
 Write-Host "[54] patchBuildPaths -- marker comment: stale path re-patched when toolset moved" -ForegroundColor Cyan
 # Simulates a toolset previously installed at a different path.
 # The .npmrc has the old path; activation must re-patch it using the marker comment template.
@@ -1282,6 +1468,8 @@ Assert "[54] stale path gone"           ($npmrc54 -notlike "*$stale54*")
 Assert "[54] real scoopdir in .npmrc"   ($npmrc54 -like "*$d54\scoop\persist\nodejs-lts*")
 Assert "[54] marker comment preserved"  ($npmrc54 -like "*# toolset:patch*__TOOLSET_SCOOP__*")
 Remove-TestDir $d54, $ps54
+
+}
 
 if ($script:fail -gt 0) {
     Write-Host ""

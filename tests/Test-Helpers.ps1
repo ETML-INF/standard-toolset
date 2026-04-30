@@ -19,6 +19,19 @@ function Assert {
     }
 }
 
+function Assert-Eq {
+    param([string]$Name, $Expected, $Actual)
+    if ($Expected -eq $Actual) {
+        $script:pass++
+    } else {
+        Write-Host "  FAIL: $Name" -ForegroundColor Red
+        Write-Host "    expected: $Expected" -ForegroundColor DarkYellow
+        Write-Host "    actual:   $Actual"   -ForegroundColor DarkYellow
+        $script:fail++
+        $script:failedAssertions.Add($Name)
+    }
+}
+
 function New-FakeScoopStub {
     # Creates a minimal scoop.ps1 so Invoke-Activate finds it and doesn't fall
     # back to "broken install" mode.  Used by activation tests that don't need a real scoop install.
