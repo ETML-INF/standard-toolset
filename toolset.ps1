@@ -38,50 +38,87 @@ function Find-ToolsetDir {
     return $dir
 }
 
-function Invoke-NodeCheck {
-    param([string]$toolsetdir, [bool]$NoInteraction)
-    $allNodes = @(Get-Command node -All -ErrorAction SilentlyContinue)
-    if ($allNodes.Count -eq 0) { return }
+function Find-UninstallEntry {
+    param([string]$Pattern)
+    $regPaths = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    foreach ($rp in $regPaths) {
+        $hit = Get-ItemProperty $rp -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like $Pattern } |
+            Select-Object -First 1
+        if ($hit) { return $hit }
+    }
+    return $null
+}
 
-    $pfx86 = ${env:ProgramFiles(x86)}
+function Invoke-ExeConflictCheck {
+    param(
+        [string]$toolsetdir,
+        [string]$ExeName,
+        [string]$DisplayName,
+        [string]$UninstallSearch,
+        [bool]$NoInteraction
+    )
+    $allExes = @(Get-Command $ExeName -All -ErrorAction SilentlyContinue)
+    if ($allExes.Count -eq 0) { return }
 
-    foreach ($nodeCmd in $allNodes) {
-        $nodePath = $nodeCmd.Source
-        if ($nodePath.StartsWith($toolsetdir)) { continue }  # expected, skip
+    foreach ($cmd in $allExes) {
+        $exePath = $cmd.Source
+        if ($exePath.StartsWith($toolsetdir)) { continue }
 
-        if ($nodePath.StartsWith($env:ProgramFiles) -or ($pfx86 -and $nodePath.StartsWith($pfx86))) {
-            Write-Host ""
-            Write-Host "+==================================================+" -ForegroundColor Red
-            Write-Host "|  WARNING: Node.js detected in Program Files!     |" -ForegroundColor Yellow
-            Write-Host "|  This will conflict with the toolset Node.js.    |" -ForegroundColor Yellow
-            Write-Host "+==================================================+" -ForegroundColor Red
-            Write-Host "  Detected: $nodePath" -ForegroundColor Yellow
-            Write-Host "  To uninstall: winget uninstall --name `"Node.js`"" -ForegroundColor Cyan
-            Write-Host ""
+        Write-Host ""
+        Write-Host "+==================================================+" -ForegroundColor Red
+        Write-Host "|  WARNING: $DisplayName detected outside toolset!  |" -ForegroundColor Yellow
+        Write-Host "|  This will conflict with the toolset version.      |" -ForegroundColor Yellow
+        Write-Host "+==================================================+" -ForegroundColor Red
+        Write-Host "  Detected: $exePath" -ForegroundColor Yellow
 
+        # Determine uninstall command: registry first, winget fallback, else manual
+        $uninstallCmd = $null
+        $uninstallSource = $null
+        if (-not [string]::IsNullOrEmpty($UninstallSearch)) {
+            $entry = Find-UninstallEntry -Pattern $UninstallSearch
+            if ($entry) {
+                $uninstallCmd = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { $entry.UninstallString }
+                $uninstallSource = "Add/Remove Programs: $($entry.DisplayName)"
+            }
+        }
+        if (-not $uninstallCmd -and -not [string]::IsNullOrEmpty($UninstallSearch)) {
+            # Winget fallback: strip trailing wildcard from search pattern
+            $wingetName = $UninstallSearch.TrimEnd('*').Trim()
+            $uninstallCmd = "winget uninstall --name `"$wingetName`""
+            $uninstallSource = "winget (fallback)"
+        }
+
+        if ($uninstallCmd) {
+            Write-Host "  Uninstall via $uninstallSource" -ForegroundColor Cyan
+            Write-Host "  Command: $uninstallCmd" -ForegroundColor Cyan
             if (-not $NoInteraction) {
                 $answer = Read-Host "Uninstall now? (requires elevation) [Y/N]"
                 if ($answer -match '^[Yy]$') {
                     try {
-                        $proc = Start-Process powershell -Verb RunAs -Wait -PassThru `
-                                -ArgumentList "-Command winget uninstall --name 'Node.js'"
+                        $proc = Start-Process cmd -Verb RunAs -Wait -PassThru `
+                            -ArgumentList "/c", $uninstallCmd
                         if ($proc.ExitCode -eq 0) {
-                            Write-Host "Node.js uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
+                            Write-Host "$DisplayName uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
                             exit 0
                         } else {
-                            Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually, then re-run toolset.ps1."
+                            Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually via Control Panel, then re-run toolset.ps1."
                         }
                     } catch {
-                        Write-Warning "Uninstall failed: $_. Please uninstall manually, then re-run toolset.ps1."
+                        Write-Warning "Uninstall failed: $_. Please uninstall manually via Control Panel, then re-run toolset.ps1."
                     }
                 } else {
-                    Write-Warning "Please uninstall Node.js manually, then re-run toolset.ps1."
+                    Write-Warning "Please uninstall $DisplayName manually, then re-run toolset.ps1."
                 }
             } else {
-                Write-Warning "Admin-installed Node.js at $nodePath. Uninstall it manually: winget uninstall --name 'Node.js'"
+                Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
             }
         } else {
-            Write-Warning "Node.js found at unexpected location: $nodePath. This may conflict with the toolset."
+            Write-Host "  No automated uninstall found. Remove $DisplayName via Control Panel manually." -ForegroundColor Yellow
+            Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
         }
     }
 }
@@ -427,8 +464,16 @@ function Invoke-Activate {
         Write-Host "Git not installed. Re-run toolset.ps1 after installing git." -ForegroundColor Red
     }
 
-    # Admin Node.js detection
-    Invoke-NodeCheck -toolsetdir $toolsetdir -NoInteraction $NoInteraction
+    # Check for conflicting admin-installed executables
+    if ($mf -and $mf.apps) {
+        foreach ($app in $mf.apps) {
+            if ($app.PSObject.Properties['exeToCheck'] -and $app.exeToCheck) {
+                $search = if ($app.PSObject.Properties['uninstallSearch']) { $app.uninstallSearch } else { '' }
+                Invoke-ExeConflictCheck -toolsetdir $toolsetdir -ExeName $app.exeToCheck `
+                    -DisplayName $app.name -UninstallSearch $search -NoInteraction $NoInteraction
+            }
+        }
+    }
 
     # Desktop shortcut
     $scoopShortcutsFolder = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Scoop Apps\"

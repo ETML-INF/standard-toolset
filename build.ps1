@@ -624,6 +624,8 @@ try {
             if ($app.PSObject.Properties['paths2DropToEnableMultiUser']) { $entry['paths2DropToEnableMultiUser'] = $app.paths2DropToEnableMultiUser }
             if ($app.PSObject.Properties['integrityExcludePaths'])       { $entry['integrityExcludePaths']       = $app.integrityExcludePaths }
             if ($app.PSObject.Properties['patchBuildPaths'])             { $entry['patchBuildPaths']             = $app.patchBuildPaths }
+            if ($app.PSObject.Properties['exeToCheck']      -and $app.exeToCheck)      { $entry['exeToCheck']      = $app.exeToCheck }
+            if ($app.PSObject.Properties['uninstallSearch'] -and $app.uninstallSearch) { $entry['uninstallSearch'] = $app.uninstallSearch }
             $manifestApps += $entry
         }
     }
