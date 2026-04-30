@@ -44,25 +44,41 @@ runs:
           # HNS holds stale Linux overlay networks from the previous Docker mode.
           # Restarting it clears that state so Docker can create the Windows nat network.
           Restart-Service hns
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 10
           # HNS initialization can be slow; retry docker start to handle the transient
           # "hnsCall failed: The system cannot find the file specified. (0x2)" race.
+          # Start-Service can succeed while the daemon immediately crashes on HNS init,
+          # so after each start we poll docker info to confirm the daemon is actually up.
+          # If it is not, we stop the service, restart HNS, and try again.
           $started = $false
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
             try {
               Start-Service docker -ErrorAction Stop
-              $started = $true
-              break
             } catch {
-              if ($attempt -lt 3) {
-                Write-Warning "Docker start attempt $attempt failed, retrying in 5s..."
-                Start-Sleep -Seconds 5
+              Write-Warning "Docker service start attempt $attempt failed ($($_.Exception.Message))."
+              if ($attempt -lt 5) {
+                Stop-Service docker -Force -ErrorAction SilentlyContinue
+                Restart-Service hns
+                Start-Sleep -Seconds 10
               }
+              continue
             }
+            # Verify daemon is responsive — service may start but daemon can crash on HNS init.
+            $ready = $false
+            for ($check = 1; $check -le 6; $check++) {
+              Start-Sleep -Seconds 5
+              $info = docker info 2>&1
+              if ($info -match "OSType") { $ready = $true; break }
+            }
+            if ($ready) { $started = $true; break }
+            Write-Warning "Docker started but daemon not responsive on attempt $attempt, retrying..."
+            Stop-Service docker -Force -ErrorAction SilentlyContinue
+            Restart-Service hns
+            Start-Sleep -Seconds 10
           }
           if (-not $started) {
             Write-Error "Docker failed to start. Event log:`n$(Get-EventLog Application -Source '*docker*' -Newest 5 -ErrorAction SilentlyContinue | ForEach-Object { $_.Message } | Out-String)"
-            throw "Docker failed to start after 3 attempts."
+            throw "Docker failed to start after 5 attempts."
           }
         }
         $deadline = (Get-Date).AddSeconds(60)
