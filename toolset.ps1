@@ -1157,33 +1157,34 @@ function Get-FilesNoJunction {
         an excluded subtree, or an excluded file path.
     #>
     param([string]$Path, [string[]]$ExcludePaths = @(), [string]$RootPath = '', [string[]]$ExcludeFilePaths = @())
-    if ($RootPath -eq '') { $RootPath = $Path }
-    Get-ChildItem $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
-        if (($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or $_.LinkType) {
-            # Stop here -- do not follow any link type (Junction, SymbolicLink, HardLink).
-            # All links are scoop activation artifacts; zip packs contain only flat files.
-            # LinkType check is belt-and-suspenders for cases where the ReparsePoint
-            # attribute flag is not reported (e.g. certain Windows builds or network paths).
-        } elseif ($_.PSIsContainer) {
-            # Check exclusion list (relative path from root, case-insensitive).
-            $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
-            $excluded = $false
-            foreach ($ex in $ExcludePaths) {
-                if ($rel -like "$ex" -or $rel -like "$ex\*" -or $rel -like "$ex/*") {
-                    $excluded = $true; break
+    if (-not $RootPath) { $RootPath = $Path }
+    $reparseAttr = [System.IO.FileAttributes]::ReparsePoint
+    $stack = [System.Collections.Generic.Stack[string]]::new()
+    $stack.Push($Path)
+    while ($stack.Count -gt 0) {
+        $dir = $stack.Pop()
+        try {
+            foreach ($item in ([System.IO.DirectoryInfo]::new($dir)).EnumerateFileSystemInfos()) {
+                if ($item.Attributes -band $reparseAttr) { continue }
+                if ($item -is [System.IO.DirectoryInfo]) {
+                    $rel = $item.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
+                    $excluded = $false
+                    foreach ($ex in $ExcludePaths) {
+                        if ($rel -like $ex -or $rel -like "$ex\*" -or $rel -like "$ex/*") { $excluded = $true; break }
+                    }
+                    if (-not $excluded) { $stack.Push($item.FullName) }
+                } else {
+                    if ($ExcludeFilePaths.Count -gt 0) {
+                        $rel = $item.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
+                        $skip = $false
+                        foreach ($ef in $ExcludeFilePaths) { if ($rel -like $ef) { $skip = $true; break } }
+                        if (-not $skip) { $item }
+                    } else {
+                        $item
+                    }
                 }
             }
-            if (-not $excluded) { Get-FilesNoJunction $_.FullName $ExcludePaths $RootPath $ExcludeFilePaths }
-        } else {
-            if ($ExcludeFilePaths.Count -gt 0) {
-                $rel = $_.FullName.Substring($RootPath.Length).TrimStart('\').TrimStart('/')
-                $skip = $false
-                foreach ($ef in $ExcludeFilePaths) { if ($rel -like $ef) { $skip = $true; break } }
-                if (-not $skip) { $_ }
-            } else {
-                $_
-            }
-        }
+        } catch { }
     }
 }
 

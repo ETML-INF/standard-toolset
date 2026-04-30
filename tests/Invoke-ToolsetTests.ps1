@@ -1471,6 +1471,64 @@ Remove-TestDir $d54, $ps54
 
 }
 
+if (Test-Scenario '55') {
+Write-Host "[55] Get-FilesNoJunction -- unit: files, hidden, junctions, ExcludePaths, ExcludeFilePaths" -ForegroundColor Cyan
+# Load function definition directly from the toolkit (same pattern as scenario 33)
+$fnCode55 = Get-Content $toolkit -Raw |
+    Select-String -Pattern '(?ms)function Get-FilesNoJunction.*?^}' -AllMatches |
+    ForEach-Object { $_.Matches.Value } | Select-Object -First 1
+Invoke-Expression $fnCode55
+
+$base55    = "C:\tmp\s55base"
+$junc55tgt = "C:\tmp\s55junctgt"
+Remove-TestDir $base55, $junc55tgt
+
+# Structure:
+#   base55\file1.txt           -- regular file (returned)
+#   base55\.hidden             -- hidden file (returned; equiv to Get-ChildItem -Force)
+#   base55\sub\file2.txt       -- file in subdir (returned)
+#   base55\excluded\file3.txt  -- file in ExcludePaths dir (skipped when -ExcludePaths used)
+#   base55\skipme.txt          -- file targeted by ExcludeFilePaths (skipped when used)
+#   base55\link\               -- junction pointing to junc55tgt (NOT traversed)
+#   junc55tgt\junc-file.txt    -- file inside junction target (must NOT appear in results)
+New-Item -Force -ItemType Directory $base55            | Out-Null
+New-Item -Force -ItemType Directory "$base55\sub"      | Out-Null
+New-Item -Force -ItemType Directory "$base55\excluded" | Out-Null
+New-Item -Force -ItemType Directory $junc55tgt         | Out-Null
+Set-Content "$base55\file1.txt"          "a"       -Encoding UTF8
+Set-Content "$base55\.hidden"            "b"       -Encoding UTF8
+(Get-Item "$base55\.hidden").Attributes = 'Hidden'
+Set-Content "$base55\sub\file2.txt"      "c"       -Encoding UTF8
+Set-Content "$base55\excluded\file3.txt" "d"       -Encoding UTF8
+Set-Content "$base55\skipme.txt"         "e"       -Encoding UTF8
+Set-Content "$junc55tgt\junc-file.txt"   "inside"  -Encoding UTF8
+New-Item -ItemType Junction -Path "$base55\link" -Value $junc55tgt | Out-Null
+
+# Basic: regular + hidden files returned; junction NOT traversed; FileInfo.Length accessible
+$all55   = @(Get-FilesNoJunction -Path $base55)
+$names55 = $all55 | ForEach-Object { $_.Name }
+Assert "[55] file1.txt returned"          ($names55 -contains 'file1.txt')
+Assert "[55] hidden file returned"        ($names55 -contains '.hidden')
+Assert "[55] sub\file2.txt returned"      ($names55 -contains 'file2.txt')
+Assert "[55] junction not traversed"      ($names55 -notcontains 'junc-file.txt')
+Assert "[55] FileInfo.Length accessible"  (($all55 | Where-Object Name -eq 'file1.txt' | Select-Object -First 1).Length -ge 0)
+
+# ExcludePaths: excluded\ subtree skipped; other files still returned
+$excl55  = @(Get-FilesNoJunction -Path $base55 -ExcludePaths @('excluded'))
+$nexcl55 = $excl55 | ForEach-Object { $_.Name }
+Assert "[55] ExcludePaths: file1.txt still returned"  ($nexcl55 -contains 'file1.txt')
+Assert "[55] ExcludePaths: file3.txt not returned"    ($nexcl55 -notcontains 'file3.txt')
+
+# ExcludeFilePaths: skipme.txt skipped; other files still returned
+$skip55  = @(Get-FilesNoJunction -Path $base55 -ExcludeFilePaths @('skipme.txt'))
+$nskip55 = $skip55 | ForEach-Object { $_.Name }
+Assert "[55] ExcludeFilePaths: file1.txt still returned"  ($nskip55 -contains 'file1.txt')
+Assert "[55] ExcludeFilePaths: skipme.txt not returned"   ($nskip55 -notcontains 'skipme.txt')
+
+Remove-TestDir $base55, $junc55tgt
+
+}
+
 if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red
