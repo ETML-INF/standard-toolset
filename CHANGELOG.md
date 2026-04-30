@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.3](https://github.com/ETML-INF/standard-toolset/compare/v2.6.2...v2.6.3) (2026-04-30)
+
+
+### Bug Fixes
+
+* **action:** docker windows mode switch smarter ([fa2b400](https://github.com/ETML-INF/standard-toolset/commit/fa2b400306912c5992231f4dcd3ead7e9056c16d))
+
 ## [2.6.2](https://github.com/ETML-INF/standard-toolset/compare/v2.6.1...v2.6.2) (2026-04-30)
 
 
