@@ -41,7 +41,9 @@
     "name":"nodejs-lts",
     "//comment":"Version:22.14.0 removed... just use lts",
     "tags":"web,project",
-    "patchBuildPaths":["node_modules\\npm\\npmrc"]
+    "patchBuildPaths":["node_modules\\npm\\npmrc"],
+    "exeToCheck":"node",
+    "uninstallSearch":"Node.js*"
   },
   {
     "//comment":"this is github desktop, not git",
@@ -60,7 +62,9 @@
     "//comment":"vscodium could be more ethical but it has less plugins...",
     "name":"vscode",
     "tags":"dev",
-    "paths2DropToEnableMultiUser":["data"]
+    "paths2DropToEnableMultiUser":["data"],
+    "exeToCheck":"code",
+    "uninstallSearch":"Microsoft Visual Studio Code"
   },
   {
     "name":"filezilla",
@@ -75,7 +79,9 @@
   {
     "//comment":"python means python3 now (2026)",
 	 "name":"python",
-	 "tags":"devops"
+	 "tags":"devops",
+	 "exeToCheck":"python",
+	 "uninstallSearch":"Python 3*"
   },
   {
     "//comment":"from hashicorp",
@@ -96,6 +102,10 @@
     "name": "mqttx",
     "bucket": "extras",
     "tags": "web,dev"
+  },
+  {
+    "name": "arduino",
+    "tags": "iot"
   }
 ]
 
