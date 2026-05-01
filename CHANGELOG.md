@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.7.0](https://github.com/ETML-INF/standard-toolset/compare/v2.6.3...v2.7.0) (2026-05-01)
+
+
+### Features
+
+* **apps:** add arduino ([522773a](https://github.com/ETML-INF/standard-toolset/commit/522773a8249ab1bc1c2b468b8eb17e9185bf7446)), closes [#59](https://github.com/ETML-INF/standard-toolset/issues/59)
+* **conflicting binaries:** can detect based on apps.json and better uninstall possibilities ([48031a2](https://github.com/ETML-INF/standard-toolset/commit/48031a27e8932cfbacb3833ee4f96423169a4ad6))
+* **integrity:** add spinner ([8479003](https://github.com/ETML-INF/standard-toolset/commit/8479003398e94e69089c3c376cfaef78243dffa2))
+* **integrity:** improve perf on integrity check ([58e6ecf](https://github.com/ETML-INF/standard-toolset/commit/58e6ecf6b8f58fc67cb0dd54a3a4373d3556748b))
+
+
+### Bug Fixes
+
+* **build:** try to avoid windows container switch issues ([5ce4e52](https://github.com/ETML-INF/standard-toolset/commit/5ce4e525db3815b0dfa086af47d96d6551c1d1b0))
+
 ## [2.6.3](https://github.com/ETML-INF/standard-toolset/compare/v2.6.2...v2.6.3) (2026-04-30)
 
 
