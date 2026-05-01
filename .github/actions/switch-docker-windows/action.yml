@@ -22,10 +22,8 @@ runs:
           # Docker Desktop (local dev) — explicit daemon switch
           & $dockerCli -SwitchDaemon
         } else {
-          # Docker Engine (GitHub Actions) — write a Windows-mode daemon.json.
-          # We keep only the 'hosts' binding from the existing file (needed for
-          # the Docker client to connect) and drop Linux-specific keys (storage,
-          # bridge, network-mode, etc.) that conflict with Windows container mode.
+          # Docker Engine (GitHub Actions) — stop Docker first, then rewrite daemon.json
+          # so there is no risk of Docker reading a half-written file on shutdown.
           $daemonJson = "$env:ProgramData\docker\config\daemon.json"
           Write-Host "Original daemon.json: $(if (Test-Path $daemonJson) { Get-Content $daemonJson -Raw } else { '<missing>' })"
 
@@ -34,22 +32,60 @@ runs:
             $orig = Get-Content $daemonJson -Raw | ConvertFrom-Json
             $hosts = $orig.PSObject.Properties['hosts']?.Value
           }
+
+          Stop-Service docker -Force
+
+          # Write Windows-mode daemon.json after Docker is fully stopped.
+          # We keep only the 'hosts' binding from the existing file (needed for
+          # the Docker client to connect) and drop Linux-specific keys (storage,
+          # bridge, network-mode, etc.) that conflict with Windows container mode.
           $cfg = [ordered]@{ 'storage-driver' = 'windowsfilter' }
           if ($hosts) { $cfg['hosts'] = $hosts }
           $json = $cfg | ConvertTo-Json -Compress
           Write-Host "New daemon.json: $json"
           [System.IO.File]::WriteAllText($daemonJson, $json, [System.Text.UTF8Encoding]::new($false))
 
-          Stop-Service docker -Force
-          # HNS holds stale Linux overlay networks from the previous Docker mode.
-          # Restarting it clears that state so Docker can create the Windows nat network.
-          Restart-Service hns
-          Start-Sleep -Seconds 10
-          # HNS initialization can be slow; retry docker start to handle the transient
-          # "hnsCall failed: The system cannot find the file specified. (0x2)" race.
-          # Start-Service can succeed while the daemon immediately crashes on HNS init,
-          # so after each start we poll docker info to confirm the daemon is actually up.
-          # If it is not, we stop the service, restart HNS, and try again.
+          # Step 1: while HNS is still running, try to remove stale Linux overlay /
+          # transparent networks via the API (less aggressive, best-effort).
+          try {
+            $stale = Get-HNSNetwork -ErrorAction SilentlyContinue |
+                       Where-Object { $_.Type -notin @('nat','l2bridge','l2tunnel') }
+            foreach ($net in $stale) {
+              Write-Host "Removing stale HNS network: $($net.Name) (type=$($net.Type))"
+              $net | Remove-HNSNetwork -ErrorAction SilentlyContinue
+            }
+          } catch {
+            Write-Warning "HNS API cleanup skipped: $_"
+          }
+
+          # Step 2: stop HNS cleanly, then drop its persisted state from disk so it
+          # starts from a blank slate. This is the reliable fix for
+          # "hnsCall failed: The system cannot find the file specified. (0x2)".
+          # Microsoft's official cleanup script targets HNS.data (the HNS database).
+          # The Policy\ sub-folder is a belt-and-suspenders fallback for newer builds.
+          Stop-Service hns -Force
+          $hnsData   = "$env:ProgramData\Microsoft\Windows\HNS\HNS.data"
+          $hnsPolicy = "$env:ProgramData\Microsoft\Windows\HNS\Policy"
+          foreach ($p in @($hnsData, $hnsPolicy)) {
+            if (Test-Path $p) {
+              Write-Host "Dropping HNS state: $p"
+              Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          # Step 3: restart HNS and wait for it to be ready before touching Docker.
+          Start-Service hns
+          $hnsReady = $false
+          for ($h = 1; $h -le 12; $h++) {
+            Start-Sleep -Seconds 5
+            $svc = Get-Service hns -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { $hnsReady = $true; break }
+          }
+          if (-not $hnsReady) { throw "HNS did not reach Running state." }
+          Start-Sleep -Seconds 5   # extra settle time before Docker starts
+          # Retry loop: Start-Service can succeed while the daemon immediately crashes,
+          # so after each start we poll docker info to confirm it is actually up.
+          # On failure we do a light HNS restart as an additional nudge before retrying.
           $started = $false
           for ($attempt = 1; $attempt -le 5; $attempt++) {
             try {
