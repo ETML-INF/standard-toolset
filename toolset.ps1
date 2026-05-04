@@ -61,65 +61,75 @@ function Invoke-ExeConflictCheck {
         [string]$UninstallSearch,
         [bool]$NoInteraction
     )
-    $allExes = @(Get-Command $ExeName -All -ErrorAction SilentlyContinue)
-    if ($allExes.Count -eq 0) { return }
+    try {
+        $allExes = @(Get-Command $ExeName -All -ErrorAction SilentlyContinue)
+        if ($allExes.Count -eq 0) { return }
 
-    foreach ($cmd in $allExes) {
-        $exePath = $cmd.Source
-        if ($exePath.StartsWith($toolsetdir)) { continue }
+        foreach ($cmd in $allExes) {
+            $exePath = $cmd.Source
+            if ($exePath.StartsWith($toolsetdir)) { continue }
 
-        Write-Host ""
-        Write-Host "+==================================================+" -ForegroundColor Red
-        Write-Host "|  WARNING: $DisplayName detected outside toolset!  |" -ForegroundColor Yellow
-        Write-Host "|  This will conflict with the toolset version.      |" -ForegroundColor Yellow
-        Write-Host "+==================================================+" -ForegroundColor Red
-        Write-Host "  Detected: $exePath" -ForegroundColor Yellow
+            $warnLine = "  WARNING: $DisplayName detected outside toolset!"
+            $confLine = "  This will conflict with the toolset version."
+            $innerW   = [Math]::Max($warnLine.Length, $confLine.Length) + 2
+            $border   = '+' + ('=' * $innerW) + '+'
+            Write-Host ""
+            Write-Host $border -ForegroundColor Red
+            Write-Host ('|' + $warnLine.PadRight($innerW) + '|') -ForegroundColor Yellow
+            Write-Host ('|' + $confLine.PadRight($innerW) + '|') -ForegroundColor Yellow
+            Write-Host $border -ForegroundColor Red
+            Write-Host "  Detected: $exePath" -ForegroundColor Yellow
 
-        # Determine uninstall command: registry first, winget fallback, else manual
-        $uninstallCmd = $null
-        $uninstallSource = $null
-        if (-not [string]::IsNullOrEmpty($UninstallSearch)) {
-            $entry = Find-UninstallEntry -Pattern $UninstallSearch
-            if ($entry) {
-                $uninstallCmd = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { $entry.UninstallString }
-                $uninstallSource = "Add/Remove Programs: $($entry.DisplayName)"
+            # Determine uninstall command: registry first, winget fallback, else manual
+            $uninstallCmd = $null
+            $uninstallSource = $null
+            if (-not [string]::IsNullOrEmpty($UninstallSearch)) {
+                $entry = Find-UninstallEntry -Pattern $UninstallSearch
+                if ($entry) {
+                    $quietStr = if ($entry.PSObject.Properties['QuietUninstallString']) { $entry.QuietUninstallString } else { $null }
+                    $uninstStr = if ($entry.PSObject.Properties['UninstallString']) { $entry.UninstallString } else { $null }
+                    $uninstallCmd = if ($quietStr) { $quietStr } elseif ($uninstStr) { $uninstStr } else { $null }
+                    $uninstallSource = "Add/Remove Programs: $($entry.DisplayName)"
+                }
             }
-        }
-        if (-not $uninstallCmd -and -not [string]::IsNullOrEmpty($UninstallSearch)) {
-            # Winget fallback: strip trailing wildcard from search pattern
-            $wingetName = $UninstallSearch.TrimEnd('*').Trim()
-            $uninstallCmd = "winget uninstall --name `"$wingetName`""
-            $uninstallSource = "winget (fallback)"
-        }
+            if (-not $uninstallCmd -and -not [string]::IsNullOrEmpty($UninstallSearch)) {
+                # Winget fallback: strip trailing wildcard from search pattern
+                $wingetName = $UninstallSearch.TrimEnd('*').Trim()
+                $uninstallCmd = "winget uninstall --name `"$wingetName`""
+                $uninstallSource = "winget (fallback)"
+            }
 
-        if ($uninstallCmd) {
-            Write-Host "  Uninstall via $uninstallSource" -ForegroundColor Cyan
-            Write-Host "  Command: $uninstallCmd" -ForegroundColor Cyan
-            if (-not $NoInteraction) {
-                $answer = Read-Host "Uninstall now? (requires elevation) [Y/N]"
-                if ($answer -match '^[Yy]$') {
-                    try {
-                        $proc = Start-Process cmd -Verb RunAs -Wait -PassThru `
-                            -ArgumentList "/c", $uninstallCmd
-                        if ($proc.ExitCode -eq 0) {
-                            Write-Host "$DisplayName uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
-                            exit 0
-                        } else {
-                            Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually via Control Panel, then re-run toolset.ps1."
+            if ($uninstallCmd) {
+                Write-Host "  Uninstall via $uninstallSource" -ForegroundColor Cyan
+                Write-Host "  Command: $uninstallCmd" -ForegroundColor Cyan
+                if (-not $NoInteraction) {
+                    $answer = Read-Host "Uninstall now? (requires elevation) [Y/N]"
+                    if ($answer -match '^[Yy]$') {
+                        try {
+                            $proc = Start-Process cmd -Verb RunAs -Wait -PassThru `
+                                -ArgumentList "/c", $uninstallCmd
+                            if ($proc.ExitCode -eq 0) {
+                                Write-Host "$DisplayName uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
+                                exit 0
+                            } else {
+                                Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually via Control Panel, then re-run toolset.ps1."
+                            }
+                        } catch {
+                            Write-Warning "Uninstall failed: $_. Please uninstall manually via Control Panel, then re-run toolset.ps1."
                         }
-                    } catch {
-                        Write-Warning "Uninstall failed: $_. Please uninstall manually via Control Panel, then re-run toolset.ps1."
+                    } else {
+                        Write-Warning "Please uninstall $DisplayName manually, then re-run toolset.ps1."
                     }
                 } else {
-                    Write-Warning "Please uninstall $DisplayName manually, then re-run toolset.ps1."
+                    Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
                 }
             } else {
+                Write-Host "  No automated uninstall found. Remove $DisplayName via Control Panel manually." -ForegroundColor Yellow
                 Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
             }
-        } else {
-            Write-Host "  No automated uninstall found. Remove $DisplayName via Control Panel manually." -ForegroundColor Yellow
-            Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
         }
+    } catch {
+        Write-Warning "Conflict check for $DisplayName failed: $_"
     }
 }
 
