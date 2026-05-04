@@ -10,12 +10,25 @@ runs:
     - name: Switch to Windows containers
       shell: pwsh
       run: |
-        # Skip if already in Windows containers mode (idempotent on re-runs).
-        $info = docker info 2>&1
+        # Wait for Docker to be responsive — on windows-2022 runners the daemon may
+        # still be starting when the job step begins.  Poll up to 60 s before
+        # deciding which mode it is in (or whether a switch is needed at all).
+        $deadline = (Get-Date).AddSeconds(60)
+        do {
+          $info = docker info 2>&1
+          if ($info -match "OSType") { break }
+          Start-Sleep -Seconds 3
+        } while ((Get-Date) -lt $deadline)
+
         if ($info -match "OSType: windows") {
           Write-Host "Docker already in Windows containers mode — skipping switch."
           exit 0
         }
+        if ($info -notmatch "OSType") {
+          Write-Error "Docker did not respond within 60 s.`n$info"
+          exit 1
+        }
+        Write-Host "Docker is in Linux containers mode — switching to Windows containers."
 
         $dockerCli = "$env:ProgramFiles\Docker\Docker\DockerCli.exe"
         if (Test-Path $dockerCli) {
