@@ -1329,14 +1329,16 @@ Remove-TestDir $d50, $ps50
 if (Test-Scenario '51') {
 Write-Host "[51] Integrity -- scoop persist file/dir entries do not trigger repair after scoop reset" -ForegroundColor Cyan
 # Scenario: the pack ships rclone.conf (0-byte placeholder) and manifest.json declares
-# persist entries.  scoop reset renames rclone.conf -> rclone.conf.original (0-byte,
-# kept in count) and creates rclone.conf as a hardlink to persist (not a reparse point,
-# so not caught by junction check -- must be excluded via persist entry list).
+# persist entries.  scoop reset renames rclone.conf -> rclone.conf.original and creates
+# rclone.conf as a hardlink to persist (not a reparse point, so not caught by junction
+# check).  Both rclone.conf (hardlink) and rclone.conf.original (.original of a persist
+# file entry) must be excluded via the persist entry list so neither inflates the count.
 # A dir persist entry (cache\) is replaced by a junction (reparse point, excluded by
 # existing check AND by persist dir exclusion).
-# fileCount = 2 (manifest.json + rclone.conf placeholder).
-# After reset: manifest.json + rclone.conf.original = 2, same total size -> matches.
-# rclone.conf hardlink and cache\ junction excluded via persist entries -> no false repair.
+# fileCount = 1 (manifest.json only; rclone.conf excluded as file persist entry).
+# After reset: manifest.json only = 1 (rclone.conf hardlink excluded as persist entry,
+# rclone.conf.original excluded as .original of persist entry) -> matches.
+# cache\ junction excluded as persist dir -> no false repair.
 $d51 = "C:\tmp\s51d"; $ps51 = "C:\tmp\s51p"
 New-Item -Force -ItemType Directory $ps51 | Out-Null
 $tmp51 = Join-Path $env:TEMP "fakepck51-$(Get-Random)"
@@ -1348,8 +1350,7 @@ New-Item -Force -ItemType Directory $vd51 | Out-Null
 # rclone.conf: 0-byte placeholder shipped in pack (will become .original after scoop reset).
 Set-Content "$vd51\rclone.conf" "" -Encoding UTF8
 $mSize51 = (Get-Item "$vd51\manifest.json").Length
-$rSize51 = (Get-Item "$vd51\rclone.conf").Length
-$fc51 = 2; $ts51 = [long]($mSize51 + $rSize51)
+$fc51 = 1; $ts51 = [long]$mSize51
 Compress-Archive -Path "$tmp51\app1" -DestinationPath "$ps51\app1-1.0.0.zip" -Force
 @{ version = "99.0.0"; built = (Get-Date -Format "o")
    apps = @([ordered]@{ name = "app1"; version = "1.0.0"; pack = "app1-1.0.0.zip"

@@ -580,6 +580,7 @@ try {
                                 $entry = $_.Replace('/', '\').TrimStart('\')
                                 $persistDirExcl  += $entry
                                 $persistFileExcl += $entry
+                                $persistFileExcl += "$entry.original"
                             }
                         }
                     }

@@ -46,7 +46,7 @@ function Find-UninstallEntry {
     )
     foreach ($rp in $regPaths) {
         $hit = Get-ItemProperty $rp -ErrorAction SilentlyContinue |
-            Where-Object { $_.DisplayName -like $Pattern } |
+            Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -like $Pattern } |
             Select-Object -First 1
         if ($hit) { return $hit }
     }
@@ -1300,6 +1300,7 @@ function Test-AppIntegrity {
                         $entry = $_.Replace('/', '\').TrimStart('\')
                         $persistDirExcludes  += $entry
                         $persistFileExcludes += $entry
+                        $persistFileExcludes += "$entry.original"
                     }
                 }
             }
@@ -1515,7 +1516,9 @@ function Get-AppDiff {
         foreach ($app in $appsToCheck) {
             if ($isTerminal) {
                 $onProgress = {
-                    [Console]::Write("`r  $($spinFrames[$spinState.idx % 4]) $($app.name)  ")
+                    $line = "  $($spinFrames[$spinState.idx % 4]) $($app.name)"
+                    $pad  = [Math]::Max(0, [Console]::WindowWidth - $line.Length - 1)
+                    [Console]::Write("`r" + $line + (' ' * $pad))
                     $spinState.idx++
                 }
             } else {
