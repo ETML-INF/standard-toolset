@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.1](https://github.com/ETML-INF/standard-toolset/compare/v2.7.0...v2.7.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* **integrity check:** clean line on scan ([87dacac](https://github.com/ETML-INF/standard-toolset/commit/87dacac51d1fc6cc09391853374c3f47b80784be))
+* **rclone:** integrity check ([87dacac](https://github.com/ETML-INF/standard-toolset/commit/87dacac51d1fc6cc09391853374c3f47b80784be))
+
 ## [2.7.0](https://github.com/ETML-INF/standard-toolset/compare/v2.6.3...v2.7.0) (2026-05-01)
 
 
