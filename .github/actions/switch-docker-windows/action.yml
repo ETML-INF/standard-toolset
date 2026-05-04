@@ -35,6 +35,16 @@ runs:
 
           Stop-Service docker -Force
 
+          # Remove Docker's network database so it does not try to restore network IDs
+          # that will no longer exist in HNS after HNS.data is wiped below.
+          # Without this, Docker starts, looks up its stored nat endpoint ID in HNS,
+          # gets 0x2 (not found), and fails to initialise the network controller.
+          $dockerNetDb = "$env:ProgramData\docker\network"
+          if (Test-Path $dockerNetDb) {
+            Write-Host "Clearing Docker network database: $dockerNetDb"
+            Remove-Item -Path $dockerNetDb -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
           # Write Windows-mode daemon.json after Docker is fully stopped.
           # We keep only the 'hosts' binding from the existing file (needed for
           # the Docker client to connect) and drop Linux-specific keys (storage,
@@ -83,6 +93,12 @@ runs:
           }
           if (-not $hnsReady) { throw "HNS did not reach Running state." }
           Start-Sleep -Seconds 5   # extra settle time before Docker starts
+
+          # Reset WinNAT so Docker can create a fresh nat network without 0x2 errors.
+          Get-NetNat -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+          Restart-Service winnat -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+
           # Retry loop: Start-Service can succeed while the daemon immediately crashes,
           # so after each start we poll docker info to confirm it is actually up.
           # On failure we do a light HNS restart as an additional nudge before retrying.
