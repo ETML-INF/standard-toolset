@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.2](https://github.com/ETML-INF/standard-toolset/compare/v2.7.1...v2.7.2) (2026-05-04)
+
+
+### Bug Fixes
+
+* **uninstall:** honor strict mode... ([53735d2](https://github.com/ETML-INF/standard-toolset/commit/53735d27edb04d09f0fafd19b15b65264aaf3c8f))
+
 ## [2.7.1](https://github.com/ETML-INF/standard-toolset/compare/v2.7.0...v2.7.1) (2026-05-04)
 
 
