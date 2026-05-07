@@ -18,9 +18,14 @@
 .PARAMETER RepoRoot
     Root directory of the repository.
     Defaults to the parent directory of $PSScriptRoot.
+
+.PARAMETER PrivateAppsPath
+    Optional path to a local private-apps.json manifest. When present, validate it
+    with the same JSON/schema checks as apps.json, plus localPack-specific fields.
 #>
 param(
-    [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent)
+    [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent),
+    [string]$PrivateAppsPath = "L:\toolset\private-apps.json"
 )
 
 Set-StrictMode -Version Latest
@@ -91,6 +96,15 @@ $appsJsonScript = Join-Path $PSScriptRoot "Test-AppsJson.ps1"
 $appsJsonPath   = Join-Path $RepoRoot "apps.json"
 pwsh -File $appsJsonScript -Path $appsJsonPath
 if ($LASTEXITCODE -ne 0) { Fail "apps.json validation failed" }
+
+# ── 4. private-apps.json schema (local only) ──────────────────────────────
+Write-CheckHeader "private-apps.json schema"
+if (Test-Path $PrivateAppsPath -ErrorAction SilentlyContinue) {
+    pwsh -File $appsJsonScript -Path $PrivateAppsPath -AllowLocalPack
+    if ($LASTEXITCODE -ne 0) { Fail "private-apps.json validation failed" }
+} else {
+    Write-Host "  SKIP: private-apps.json not found at $PrivateAppsPath" -ForegroundColor DarkGray
+}
 
 # ── Result ────────────────────────────────────────────────────────────────
 Write-Host ""

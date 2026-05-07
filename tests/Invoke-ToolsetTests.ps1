@@ -835,6 +835,42 @@ Remove-TestDir $d35c, $ps35c, $ldrive35c
 
 }
 
+if (Test-Scenario '35d') {
+Write-Host "[35d] Malformed private-apps.json skips private cleanup" -ForegroundColor Cyan
+$d35d      = "C:\tmp\s35dd"
+$ps35d     = "C:\tmp\s35dp"
+$ldrive35d = "C:\tmp\s35d-ldrive"
+& $helper -OutputDir $ps35d -Apps @(@{Name="app1";Version="1.0.0"})
+$null = New-Item -ItemType Directory -Force -Path $ldrive35d
+$tmpSec35d = "$env:TEMP\fakepck-sec35d-$(Get-Random)"
+$null = New-Item -ItemType Directory -Force -Path "$tmpSec35d\secapp\1.0.0"
+'{"version":"1.0.0"}' | Set-Content "$tmpSec35d\secapp\1.0.0\manifest.json" -Encoding UTF8
+Compress-Archive -Path "$tmpSec35d\secapp" -DestinationPath "$ldrive35d\secapp-1.0.0.zip" -Force
+Remove-TestDir $tmpSec35d
+@(@{ name = "secapp"; version = "1.0.0"; localPack = "$ldrive35d\secapp-1.0.0.zip" }) |
+    ConvertTo-Json | Set-Content "$ldrive35d\private-apps.json" -Encoding UTF8
+pwsh -File $toolkit update -Path $d35d -ManifestSource "$ps35d\release-manifest.json" `
+    -PackSource $ps35d -LDrivePath $ldrive35d -NoInteraction 2>&1 | Out-Null
+$malformedPrivateJson35d = @'
+[
+  {
+    "name": "secapp",
+    "version": "1.0.0",
+    "localPack": "C:\broken\secapp-1.0.0.zip",
+  }
+]
+'@
+Set-Content "$ldrive35d\private-apps.json" $malformedPrivateJson35d -Encoding UTF8
+$out35d = pwsh -File $toolkit update -Path $d35d -ManifestSource "$ps35d\release-manifest.json" `
+    -PackSource $ps35d -LDrivePath $ldrive35d -CleanPrivate -NoInteraction 2>&1
+Assert "[35d] secapp survives malformed private-apps.json" (Test-Path "$d35d\private\apps\secapp\current\manifest.json")
+Assert "[35d] invalid-json warning shown"                  ($out35d -match "Could not load private apps")
+Assert "[35d] cleanup skipped warning shown"              ($out35d -match "Skipping private app cleanup")
+Remove-TestDir $d35d, $ps35d, $ldrive35d
+
+
+}
+
 if (Test-Scenario '36a') {
 Write-Host "[36a] Activation -- scoop current\ real folder WITH scoop.ps1 (silent wrong-version regression)" -ForegroundColor Cyan
 # Prior manual install: current\ is a real folder containing bin\scoop.ps1 (v0.4.0).
@@ -1313,6 +1349,8 @@ $out50a = pwsh -File $toolkit update -Path $d50 -ManifestSource "$ps50\release-m
 $ec50a = $LASTEXITCODE
 Assert "[50] first run exits 0"              ($ec50a -eq 0)
 Assert "[50] repair shown in output"         ($out50a -match "\[!\]")
+Assert "[50] repair shows real file counts"  ($out50a -match "files \d+/\d+")
+Assert "[50] repair shows real size counts"  ($out50a -match "size \d+/\d+ bytes")
 Assert "[50] extra file removed after repair" (-not (Test-Path "$d50\scoop\apps\app1\1.0.0\extra-intruder.txt") -and -not (Test-Path "$d50\scoop\apps\app1\current\extra-intruder.txt"))
 # Second run -- must see app as healthy (no re-download, no [!] shown).
 # Remove the pack so a re-download attempt would fail.

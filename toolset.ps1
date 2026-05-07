@@ -763,9 +763,15 @@ function Merge-PrivateApps {
     #>
     param([object]$Manifest, [string]$LDrivePath = "L:\toolset")
     $privateAppsPath = "$LDrivePath\private-apps.json"
+    if ($Manifest.PSObject.Properties['__privateAppsStatus']) {
+        $Manifest.__privateAppsStatus = 'missing'
+    } else {
+        Add-Member -InputObject $Manifest -NotePropertyName '__privateAppsStatus' -NotePropertyValue 'missing'
+    }
     if (-not (Test-Path $privateAppsPath -ErrorAction SilentlyContinue)) { return $Manifest }
     try {
         $privateApps  = Get-Content $privateAppsPath -Raw | ConvertFrom-Json
+        $Manifest.__privateAppsStatus = 'loaded'
         $existingNames = @($Manifest.apps | ForEach-Object { $_.name })
         $added = 0
         foreach ($pa in $privateApps) {
@@ -780,12 +786,16 @@ function Merge-PrivateApps {
             if ($pa.PSObject.Properties['shortcuts']) {
                 Add-Member -InputObject $entry -NotePropertyName 'shortcuts' -NotePropertyValue $pa.shortcuts
             }
+            if ($pa.PSObject.Properties['zipMd5']) {
+                Add-Member -InputObject $entry -NotePropertyName 'zipMd5' -NotePropertyValue $pa.zipMd5
+            }
             $Manifest.apps = @($Manifest.apps) + @($entry)
             $existingNames += $pa.name
             $added++
         }
         if ($added -gt 0) { Write-Host "  $added private app(s) merged from $privateAppsPath" -ForegroundColor DarkGray }
     } catch {
+        $Manifest.__privateAppsStatus = 'invalid'
         Write-Warning "Could not load private apps from $privateAppsPath : $_"
     }
     return $Manifest
@@ -1271,13 +1281,16 @@ function Test-AppIntegrity {
     .PARAMETER DeltaSize
         Allowed relative deviation from expected totalSize (default 0.10 = 10%).
     .OUTPUTS
-        PSCustomObject with Ok (bool), FileRatio (0.0-1.0), SizeRatio (0.0-1.0).
-        Ratios express how close actual is to expected: 1.0 = perfect, 0.97 = 3% off.
+        PSCustomObject with Ok (bool), FileRatio (0.0-1.0), SizeRatio (0.0-1.0),
+        and the actual/expected file count and total size values used to compute them.
     #>
     param([object]$App, [string]$toolsetdir, [double]$DeltaCount = 0.05, [double]$DeltaSize = 0.10, [scriptblock]$OnProgress = $null)
     # Graceful degradation: old manifests without metadata are treated as healthy
     if (-not ($App.PSObject.Properties['fileCount'] -and $App.PSObject.Properties['totalSize'])) {
-        return [pscustomobject]@{ Ok = $true; FileRatio = 1.0; SizeRatio = 1.0 }
+        return [pscustomobject]@{
+            Ok = $true; FileRatio = 1.0; SizeRatio = 1.0
+            ActualCount = $null; ExpectedCount = $null; ActualSize = $null; ExpectedSize = $null
+        }
     }
     # Check versioned dir: scoop\apps first, then private\apps, then current\ fallback.
     $versionDir = "$toolsetdir\scoop\apps\$($App.name)\$($App.version)"
@@ -1288,7 +1301,10 @@ function Test-AppIntegrity {
         $versionDir = "$toolsetdir\scoop\apps\$($App.name)\current"
     }
     if (-not (Test-Path $versionDir -ErrorAction SilentlyContinue)) {
-        return [pscustomobject]@{ Ok = $false; FileRatio = 0.0; SizeRatio = 0.0 }
+        return [pscustomobject]@{
+            Ok = $false; FileRatio = 0.0; SizeRatio = 0.0
+            ActualCount = 0; ExpectedCount = [int]$App.fileCount; ActualSize = 0L; ExpectedSize = [long]$App.totalSize
+        }
     }
     $excludePaths = if ($App.PSObject.Properties['integrityExcludePaths']) {
         @($App.integrityExcludePaths)
@@ -1317,28 +1333,51 @@ function Test-AppIntegrity {
         } catch { }
     }
     $files = @(Get-FilesNoJunction -Path $versionDir -ExcludePaths ($excludePaths + $persistDirExcludes) -ExcludeFilePaths $persistFileExcludes -OnProgress $OnProgress)
+    $sizeMeasure = @($files | Measure-Object -Property Length -Sum)
+    $size = if ($sizeMeasure.Count -gt 0 -and $sizeMeasure[0].PSObject.Properties['Sum'] -and $null -ne $sizeMeasure[0].Sum) {
+        [long]$sizeMeasure[0].Sum
+    } else {
+        0L
+    }
     $expectedCount = [int]$App.fileCount
     $fileRatio = 1.0
     if ($expectedCount -gt 0) {
         $fileDeviation = [Math]::Abs($files.Count - $expectedCount) / [double]$expectedCount
         $fileRatio     = [Math]::Max(0.0, 1.0 - $fileDeviation)
         if ($fileDeviation -gt $DeltaCount) {
-            return [pscustomobject]@{ Ok = $false; FileRatio = $fileRatio; SizeRatio = 1.0 }
+            return [pscustomobject]@{
+                Ok = $false; FileRatio = $fileRatio; SizeRatio = 1.0
+                ActualCount = $files.Count; ExpectedCount = $expectedCount
+                ActualSize = $size
+                ExpectedSize = [long]$App.totalSize
+            }
         }
     } elseif ($files.Count -ne 0) {
-        return [pscustomobject]@{ Ok = $false; FileRatio = 0.0; SizeRatio = 1.0 }
+        return [pscustomobject]@{
+            Ok = $false; FileRatio = 0.0; SizeRatio = 1.0
+            ActualCount = $files.Count; ExpectedCount = 0
+            ActualSize = $size
+            ExpectedSize = [long]$App.totalSize
+        }
     }
-    $size = ($files | Measure-Object -Property Length -Sum).Sum
     $expectedSize = [long]$App.totalSize
     $sizeRatio = 1.0
     if ($expectedSize -gt 0) {
         $sizeDeviation = [Math]::Abs($size - $expectedSize) / [double]$expectedSize
         $sizeRatio     = [Math]::Max(0.0, 1.0 - $sizeDeviation)
         $ok            = $sizeDeviation -le $DeltaSize
-        return [pscustomobject]@{ Ok = $ok; FileRatio = $fileRatio; SizeRatio = $sizeRatio }
+        return [pscustomobject]@{
+            Ok = $ok; FileRatio = $fileRatio; SizeRatio = $sizeRatio
+            ActualCount = $files.Count; ExpectedCount = $expectedCount
+            ActualSize = [long]$size; ExpectedSize = $expectedSize
+        }
     }
     $ok = ($size -eq 0)
-    return [pscustomobject]@{ Ok = $ok; FileRatio = $fileRatio; SizeRatio = if ($ok) { 1.0 } else { 0.0 } }
+    return [pscustomobject]@{
+        Ok = $ok; FileRatio = $fileRatio; SizeRatio = if ($ok) { 1.0 } else { 0.0 }
+        ActualCount = $files.Count; ExpectedCount = $expectedCount
+        ActualSize = [long]$size; ExpectedSize = 0L
+    }
 }
 
 function Remove-Junction {
@@ -1571,13 +1610,15 @@ function Get-AppDiff {
     }
 }
 
-function Format-IntegrityRatio {
+function Format-IntegrityDetails {
     param([pscustomobject]$ir)
     if ($null -eq $ir) { return "" }
-    $f = [int]([Math]::Round($ir.FileRatio * 100))
-    $s = [int]([Math]::Round($ir.SizeRatio * 100))
-    if ($f -eq 100 -and $s -eq 100) { return "" }
-    return " ($f%/$s%)"
+    if (($null -eq $ir.ActualCount) -or ($null -eq $ir.ExpectedCount) -or
+        ($null -eq $ir.ActualSize)  -or ($null -eq $ir.ExpectedSize)) {
+        return ""
+    }
+    if ($ir.ActualCount -eq $ir.ExpectedCount -and $ir.ActualSize -eq $ir.ExpectedSize) { return "" }
+    return " (files $($ir.ActualCount)/$($ir.ExpectedCount), size $($ir.ActualSize)/$($ir.ExpectedSize) bytes)"
 }
 
 function Show-AppStatus {
@@ -1586,15 +1627,15 @@ function Show-AppStatus {
     foreach ($a in $Diff.ToInstall) { Write-Host "  [+] $($a.name.PadRight(20)) $($a.version)  will install" -ForegroundColor Cyan }
     foreach ($a in $Diff.ToUpdate)  { Write-Host "  [^] $($a.name.PadRight(20)) $($a.version)  will update from $($LocalVersions[$a.name])" -ForegroundColor Cyan }
     foreach ($a in $Diff.ToRepair) {
-        $ratio = Format-IntegrityRatio $Diff.IntegrityCache[$a.name]
-        Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair$ratio" -ForegroundColor Yellow
+        $details = Format-IntegrityDetails $Diff.IntegrityCache[$a.name]
+        Write-Host "  [!] $($a.name.PadRight(20)) $($a.version)  needs repair$details" -ForegroundColor Yellow
     }
     foreach ($a in $Diff.UpToDate) {
-        $ratio = Format-IntegrityRatio $Diff.IntegrityCache[$a.name]
+        $details = Format-IntegrityDetails $Diff.IntegrityCache[$a.name]
         if ($LocalVersions[$a.name] -eq '?') {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)$ratio" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)$details" -ForegroundColor Green
         } else {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date$ratio" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date$details" -ForegroundColor Green
         }
     }
     foreach ($n in $Diff.Removed)   { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
@@ -1611,11 +1652,11 @@ function Show-PostStatus {
         }
     }
     foreach ($a in $Diff.UpToDate) {
-        $ratio = Format-IntegrityRatio $Diff.IntegrityCache[$a.name]
+        $details = Format-IntegrityDetails $Diff.IntegrityCache[$a.name]
         if ($LocalVersions[$a.name] -eq '?') {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)$ratio" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date (version unknown, files OK)$details" -ForegroundColor Green
         } else {
-            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date$ratio" -ForegroundColor Green
+            Write-Host "  [=] $($a.name.PadRight(20)) $($a.version)  up to date$details" -ForegroundColor Green
         }
     }
     foreach ($n in $Diff.Removed) { Write-Host "  [X] $($n.PadRight(20)) $($LocalVersions[$n])  not in manifest" -ForegroundColor Red }
@@ -1795,7 +1836,9 @@ if ($Command -eq "update") {
     }
 
     if ($removedPrivate.Count -gt 0) {
-        if ($CleanPrivate) {
+        if ($manifest.PSObject.Properties['__privateAppsStatus'] -and $manifest.__privateAppsStatus -eq 'invalid') {
+            Write-Warning "Skipping private app cleanup because $LDrivePath\private-apps.json is invalid JSON."
+        } elseif ($CleanPrivate) {
             foreach ($name in $removedPrivate) {
                 Remove-DirSafe "$toolsetdir\private\apps\$name"
                 Write-Host "  Removed private app $name" -ForegroundColor DarkGray
@@ -1874,7 +1917,12 @@ if ($Command -eq "update") {
     }
 
     # Persist manifest so Invoke-Activate can read paths2DropToEnableMultiUser at activation time
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content "$toolsetdir\release-manifest.json" -Encoding UTF8
+    $manifestToSave = if ($manifest.PSObject.Properties['__privateAppsStatus']) {
+        $manifest | Select-Object * -ExcludeProperty __privateAppsStatus
+    } else {
+        $manifest
+    }
+    $manifestToSave | ConvertTo-Json -Depth 5 | Set-Content "$toolsetdir\release-manifest.json" -Encoding UTF8
 
     # Self-update toolset.ps1 in toolsetdir
     # Safe: PowerShell reads the entire script into memory before execution begins,
