@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.3](https://github.com/ETML-INF/standard-toolset/compare/v2.7.2...v2.7.3) (2026-05-07)
+
+
+### Bug Fixes
+
+* **private app:** do not uninstall if private app json has a bad format ([986351b](https://github.com/ETML-INF/standard-toolset/commit/986351b9e519b70d225f6d5319cd0cd6dd2b3d99))
+
 ## [2.7.2](https://github.com/ETML-INF/standard-toolset/compare/v2.7.1...v2.7.2) (2026-05-04)
 
 
