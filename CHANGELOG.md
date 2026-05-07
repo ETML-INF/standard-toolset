@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.4](https://github.com/ETML-INF/standard-toolset/compare/v2.7.3...v2.7.4) (2026-05-07)
+
+
+### Bug Fixes
+
+* **pack reuse:** check previous release availability ([7b84356](https://github.com/ETML-INF/standard-toolset/commit/7b8435611b913854bcd1ef9c555a7ea35901fe2f))
+
 ## [2.7.3](https://github.com/ETML-INF/standard-toolset/compare/v2.7.2...v2.7.3) (2026-05-07)
 
 
