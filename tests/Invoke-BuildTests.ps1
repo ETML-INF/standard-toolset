@@ -212,6 +212,32 @@ Remove-Item $b8aPrev     -Force -ErrorAction SilentlyContinue
 Remove-Item $b8bAppsJson -Force -ErrorAction SilentlyContinue
 Remove-Item $b8bPrev     -Force -ErrorAction SilentlyContinue
 
+Write-Host "[B8c] dead GitHub packUrl forces rebuild instead of reusing stale manifest entry" -ForegroundColor Cyan
+$b8cAppsJson = "C:\tmp\b8c-apps.json"
+@(@{ name = "jq" }) | ConvertTo-Json -Depth 3 | Set-Content $b8cAppsJson -Encoding UTF8
+$b8cPrev = "C:\tmp\b8c-prev.json"
+$deadGitHubPackUrl = "https://github.com/ETML-INF/standard-toolset/releases/download/v0.0.0/nonexistent-jq.zip"
+@{
+    version = "98.3.0"
+    apps    = @(@{ name = "jq"; version = $jqVer8; pack = $jqPack8; packUrl = $deadGitHubPackUrl })
+} | ConvertTo-Json -Depth 5 | Set-Content $b8cPrev -Encoding UTF8
+
+if (Test-Path $buildPacks) { Remove-Item $buildPacks -Recurse -Force }
+$env:RELEASE_VERSION = "test-99.0.8c"
+$out8c   = pwsh -File "$repoRoot\build.ps1" $b8cAppsJson -PreviousManifestPath $b8cPrev 2>&1
+$jqZip8c = @(Get-ChildItem "$buildPacks\jq-*.zip" -EA SilentlyContinue).Count
+$m8c  = if (Test-Path "$buildPacks\release-manifest.json") {
+    Get-Content "$buildPacks\release-manifest.json" -Raw | ConvertFrom-Json
+} else { $null }
+$jqEntry8c = if ($m8c) { $m8c.apps | Where-Object { $_.name -eq "jq" } | Select-Object -First 1 } else { $null }
+Assert "[B8c] dead url: jq rebuilt (no reuse msg)"                 (-not ($out8c -match "Reusing jq"))
+Assert "[B8c] dead url: warning shown"                              ($out8c -match "unreachable")
+Assert "[B8c] dead url: jq zip produced"                           ($jqZip8c -gt 0)
+Assert "[B8c] dead url: stale packUrl not carried forward"         (-not ($jqEntry8c -and $jqEntry8c.PSObject.Properties['packUrl'] -and $jqEntry8c.packUrl -eq $deadGitHubPackUrl))
+
+Remove-Item $b8cAppsJson -Force -ErrorAction SilentlyContinue
+Remove-Item $b8cPrev     -Force -ErrorAction SilentlyContinue
+
 Write-Host "[B6] toolset.ps1 / setup.ps1 — ASCII-only (PS 5.1 compatible)" -ForegroundColor Cyan
 # PowerShell 5.1 reads UTF-8 files without BOM as ANSI (Windows-1252).
 # Any non-ASCII byte (em dash, box-drawing chars, arrows, etc.) causes parse errors.

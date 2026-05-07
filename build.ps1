@@ -249,6 +249,34 @@ try {
     }
     $packLibrary = @{}      # "appName:version" → {pack, url}
     $maxHops     = 10
+    $packUrlAvailability = @{}
+
+    function Test-ReusablePackUrl {
+        param([string]$Url)
+        if ([string]::IsNullOrEmpty($Url)) { return $false }
+        # Only probe GitHub release asset URLs: that is the stale-reference case this build fixes.
+        # Other remote URLs may be stable mirrors or non-HEAD-friendly endpoints, so keep trusting them.
+        if ($Url -notmatch '^https://github\.com/.+/releases/download/') { return $true }
+        if ($packUrlAvailability.ContainsKey($Url)) { return [bool]$packUrlAvailability[$Url] }
+
+        $iwrArgs = @{
+            Uri         = $Url
+            Method      = 'Head'
+            TimeoutSec  = 20
+            ErrorAction = 'Stop'
+        }
+        if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+
+        try {
+            Invoke-WebRequest @iwrArgs | Out-Null
+            $packUrlAvailability[$Url] = $true
+            return $true
+        } catch {
+            Write-Warning "Reusable pack URL is unreachable, forcing rebuild: $Url"
+            $packUrlAvailability[$Url] = $false
+            return $false
+        }
+    }
 
     try {
         Write-Output "Building pack library from release chain..."
@@ -379,7 +407,7 @@ try {
     $scoopPackResult = $null
     if ($scoopVer) {
         $scoopKey = "scoop:$scoopVer"
-        if ($packLibrary.ContainsKey($scoopKey)) {
+        if ($packLibrary.ContainsKey($scoopKey) -and (Test-ReusablePackUrl $packLibrary[$scoopKey].url)) {
             $entry = $packLibrary[$scoopKey]
             Write-Output "  Reusing scoop $scoopVer (pack stays at $($entry.url))"
             $scoopPackResult = [ordered]@{ name = 'scoop'; version = $scoopVer; pack = $entry.pack; packUrl = $entry.url }
@@ -450,6 +478,8 @@ try {
 
                 if ($exclMismatch) {
                     Write-Output "  Rebuilding $appName $availVer (integrityExcludePaths changed)"
+                } elseif (-not (Test-ReusablePackUrl $entry.url)) {
+                    Write-Output "  Rebuilding $appName $availVer (reused pack URL unavailable)"
                     # falls through to $appsToInstall.Add($app) below
                 } else {
                     Write-Output "  Reusing $appName $availVer (pack stays at $($entry.url))"
