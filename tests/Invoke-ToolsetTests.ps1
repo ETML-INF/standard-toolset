@@ -1569,6 +1569,93 @@ Remove-TestDir $base55, $junc55tgt
 
 }
 
+if (Test-Scenario '56') {
+Write-Host "[56] Self-update — toolset.ps1 copied from LDrivePath when content differs" -ForegroundColor Cyan
+$d56      = "C:\tmp\s56d"
+$ps56     = "C:\tmp\s56p"
+$ld56     = "C:\tmp\s56-ldrive"
+& $helper -OutputDir $ps56 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $ld56 | Out-Null
+# LDrive has a newer/different toolset.ps1
+$marker56 = "# s56-ldrive-marker"
+Set-Content "$ld56\toolset.ps1" $marker56 -Encoding UTF8
+New-Item -Force -ItemType Directory $d56 | Out-Null
+# Install dir has a different (older) toolset.ps1
+Set-Content "$d56\toolset.ps1" "# s56-old-version" -Encoding UTF8
+$out56 = pwsh -File $toolkit update -Path $d56 `
+    -ManifestSource "$ps56\release-manifest.json" -PackSource $ps56 -LDrivePath $ld56 -NoInteraction 2>&1
+$ec56        = $LASTEXITCODE
+$installed56 = Get-Content "$d56\toolset.ps1" -Raw -ErrorAction SilentlyContinue
+Assert "[56] exit 0"                                  ($ec56 -eq 0)
+Assert "[56] toolset.ps1 replaced with LDrive copy"  ($installed56 -like "*$marker56*")
+Assert "[56] 'toolset.ps1 updated' shown in output"  ($out56 -match "toolset\.ps1 updated")
+Remove-TestDir $d56, $ps56, $ld56
+
+}
+
+if (Test-Scenario '57') {
+Write-Host "[57] Self-update — toolset.ps1 NOT replaced when LDrive content matches installed" -ForegroundColor Cyan
+$d57  = "C:\tmp\s57d"
+$ps57 = "C:\tmp\s57p"
+$ld57 = "C:\tmp\s57-ldrive"
+& $helper -OutputDir $ps57 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $ld57 | Out-Null
+# LDrive and install dir have identical toolset.ps1 content
+$same57 = "# s57-same-content"
+Set-Content "$ld57\toolset.ps1" $same57 -Encoding UTF8
+New-Item -Force -ItemType Directory $d57 | Out-Null
+Set-Content "$d57\toolset.ps1"   $same57 -Encoding UTF8
+$out57 = pwsh -File $toolkit update -Path $d57 `
+    -ManifestSource "$ps57\release-manifest.json" -PackSource $ps57 -LDrivePath $ld57 -NoInteraction 2>&1
+$ec57 = $LASTEXITCODE
+Assert "[57] exit 0"                                          ($ec57 -eq 0)
+Assert "[57] 'toolset.ps1 updated' NOT shown (same content)" ($out57 -notmatch "toolset\.ps1 updated")
+Assert "[57] toolset.ps1 content unchanged"                  ((Get-Content "$d57\toolset.ps1" -Raw) -like "*$same57*")
+Remove-TestDir $d57, $ps57, $ld57
+
+}
+
+if (Test-Scenario '58') {
+Write-Host "[58] Self-update — activate.cmd written to toolset dir after update" -ForegroundColor Cyan
+$d58  = "C:\tmp\s58d"
+$ps58 = "C:\tmp\s58p"
+& $helper -OutputDir $ps58 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d58 | Out-Null
+pwsh -File $toolkit update -Path $d58 `
+    -ManifestSource "$ps58\release-manifest.json" -PackSource $ps58 -NoInteraction 2>$null
+$ec58     = $LASTEXITCODE
+$cmd58    = Get-Content "$d58\activate.cmd" -Raw -ErrorAction SilentlyContinue
+Assert "[58] exit 0"                                         ($ec58 -eq 0)
+Assert "[58] activate.cmd created in toolset dir"            (Test-Path "$d58\activate.cmd")
+Assert "[58] activate.cmd contains ExecutionPolicy Bypass"   ($cmd58 -like "*ExecutionPolicy Bypass*")
+Assert "[58] activate.cmd references toolset.ps1"            ($cmd58 -like "*toolset.ps1*")
+Remove-TestDir $d58, $ps58
+
+}
+
+if (Test-Scenario '59') {
+Write-Host "[59] Self-update — no error when running toolset.ps1 from install dir (same-path guard)" -ForegroundColor Cyan
+# Simulates: activation fails -> fallback to update mode -> $PSCommandPath == $destToolset
+# With same content on both sides the hash guard must skip the copy cleanly (no sharing violation).
+$d59  = "C:\tmp\s59d"
+$ps59 = "C:\tmp\s59p"
+New-Item -Force -ItemType Directory $d59 | Out-Null
+# No LDrive toolset.ps1 -> GitHub 404 for v99.0.0 -> fallback to $PSCommandPath == $destToolset
+$null = New-Item -ItemType Directory -Force "C:\tmp\s59-ldrive"
+@{ version = "99.0.0"; apps = @() } | ConvertTo-Json -Depth 5 | Set-Content "$ps59\release-manifest.json" -Encoding UTF8
+# Copy the real toolkit into the install dir and run it from there
+Copy-Item $toolkit "$d59\toolset.ps1" -Force
+$out59 = pwsh -File "$d59\toolset.ps1" update -Path $d59 `
+    -ManifestSource "$ps59\release-manifest.json" -PackSource $ps59 `
+    -LDrivePath "C:\tmp\s59-ldrive" -NoInteraction 2>&1
+$ec59 = $LASTEXITCODE
+Assert "[59] exit 0 (no copy-self error)"                    ($ec59 -eq 0)
+Assert "[59] 'toolset.ps1 updated' NOT shown (same content)" ($out59 -notmatch "toolset\.ps1 updated")
+Assert "[59] toolset.ps1 still present"                      (Test-Path "$d59\toolset.ps1")
+Remove-TestDir $d59, $ps59, "C:\tmp\s59-ldrive"
+
+}
+
 if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red

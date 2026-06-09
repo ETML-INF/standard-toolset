@@ -59,7 +59,7 @@ try {
     # Pass -NoInteraction only when present: native-process calls (powershell.exe / pwsh)
     # serialise -Switch:$false as the string "False", which [switch] can't accept.
     $extraArgs = if ($NoInteraction) { @('-NoInteraction') } else { @() }
-    & $shell -File $tmpToolset update -Path $Destination @extraArgs
+    & $shell -ExecutionPolicy Bypass -File $tmpToolset update -Path $Destination @extraArgs
 } finally {
     Remove-Item $tmpToolset -Force -ErrorAction SilentlyContinue
 }

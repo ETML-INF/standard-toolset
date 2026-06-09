@@ -16,6 +16,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
 if (-not [string]::IsNullOrEmpty($LogFile)) {
     Start-Transcript -Path $LogFile -Append -Force | Out-Null
 }
@@ -817,7 +818,6 @@ function Get-ReleaseManifest {
     # GitHub is a fallback for machines not on the school network (home use, external sites, etc.).
     # Falling back silently to GitHub in non-interactive mode would surprise an admin who expects
     # the internal version; requiring confirmation keeps the behaviour predictable and auditable.
-    $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
     $lManifest = if ([string]::IsNullOrEmpty($Version)) {
         "$LDrivePath\release-manifest.json"
     } else {
@@ -1159,7 +1159,6 @@ function Get-Pack {
         }
     }
 
-    $repoBase = "https://github.com/ETML-INF/standard-toolset/releases"
     # packUrl is written by build.ps1 for packs reused from a prior release  - it points to the
     # release where the pack was actually built rather than the current manifest version.
     # Without this, every new release would have to re-upload all unchanged packs, and a client
@@ -1924,13 +1923,67 @@ if ($Command -eq "update") {
     }
     $manifestToSave | ConvertTo-Json -Depth 5 | Set-Content "$toolsetdir\release-manifest.json" -Encoding UTF8
 
-    # Self-update toolset.ps1 in toolsetdir
+    # Self-update toolset.ps1 in toolsetdir.
     # Safe: PowerShell reads the entire script into memory before execution begins,
-    # so overwriting the source file mid-run does not affect the current execution.
-    $myPath = $PSCommandPath
-    if ($myPath -and (Test-Path $myPath)) {
-        Copy-Item $myPath "$toolsetdir\toolset.ps1" -Force
+    # so overwriting (or renaming) the source file mid-run does not affect execution.
+    # Source priority: L: drive → GitHub (pinned to manifest version) → $PSCommandPath.
+    # Hash-compare with the installed copy: skip entirely when already up to date.
+    $destToolset = "$toolsetdir\toolset.ps1"
+    $tsSource    = $null
+    $tsTmp       = $null   # set when downloaded to TEMP (needs cleanup)
+
+    $lToolset = "$LDrivePath\toolset.ps1"
+    if (Test-Path $lToolset -ErrorAction SilentlyContinue) {
+        $tsSource = $lToolset
+    } else {
+        $tsTmp = "$env:TEMP\toolset-selfupdate-$(Get-Random).ps1"
+        try {
+            Invoke-Download -Url "$repoBase/download/v$($manifest.version)/toolset.ps1" `
+                -OutFile $tsTmp -Description "toolset.ps1"
+            $tsSource = $tsTmp
+        } catch {
+            Write-Verbose "toolset.ps1 self-update fetch failed: $_ - falling back to running script"
+        }
     }
+    if (-not $tsSource) { $tsSource = $PSCommandPath }
+
+    if ($tsSource -and (Test-Path $tsSource -ErrorAction SilentlyContinue)) {
+        $upToDate = $false
+        if (Test-Path $destToolset -ErrorAction SilentlyContinue) {
+            try {
+                $upToDate = ((Get-FileHash $tsSource -Algorithm MD5).Hash -eq
+                             (Get-FileHash $destToolset -Algorithm MD5).Hash)
+            } catch {}
+        }
+        if (-not $upToDate) {
+            $sameFile = ([System.IO.Path]::GetFullPath($tsSource) -eq [System.IO.Path]::GetFullPath($destToolset))
+            if ($sameFile) {
+                # Rename aside first to avoid copy-over-self sharing violation.
+                # Version + timestamp suffix keeps the backup name unique across rapid re-runs.
+                $stamp  = Get-Date -Format 'yyyyMMddHHmmss'
+                $suffix = if ($manifest.version) { "$($manifest.version)-$stamp" } else { $stamp }
+                $backup = "$destToolset.$suffix.bak"
+                Rename-Item -LiteralPath $destToolset -NewName ([System.IO.Path]::GetFileName($backup)) -ErrorAction SilentlyContinue
+                if (Test-Path $backup -ErrorAction SilentlyContinue) {
+                    Copy-Item $backup $destToolset -Force -ErrorAction SilentlyContinue
+                    Remove-Item $backup -Force -ErrorAction SilentlyContinue
+                    Write-Host "  toolset.ps1 updated (in-place)" -ForegroundColor Green
+                } else {
+                    Write-Warning "Could not rename toolset.ps1 for self-update - file may be locked by another process"
+                }
+            } else {
+                Copy-Item $tsSource $destToolset -Force
+                Write-Host "  toolset.ps1 updated" -ForegroundColor Green
+            }
+        }
+    }
+    if ($tsTmp) { Remove-Item $tsTmp -Force -ErrorAction SilentlyContinue }
+
+    # Write activate.cmd so users can re-activate with correct execution policy
+    # by double-clicking without needing a separate launcher or admin rights.
+    $activateCmdPath    = "$toolsetdir\activate.cmd"
+    $activateCmdContent = "@echo off`r`nwhere pwsh >nul 2>&1`r`nif %errorlevel%==0 (`r`n    pwsh -ExecutionPolicy Bypass -File `"%~dp0toolset.ps1`"`r`n) else (`r`n    powershell -ExecutionPolicy Bypass -File `"%~dp0toolset.ps1`"`r`n)`r`n"
+    [System.IO.File]::WriteAllText($activateCmdPath, $activateCmdContent, [System.Text.ASCIIEncoding]::new())
 
     # Re-run activation (skipped for remote UNC paths  - run toolset.ps1 locally on target to activate)
     Write-Host ""
