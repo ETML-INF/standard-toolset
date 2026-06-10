@@ -1926,7 +1926,7 @@ if ($Command -eq "update") {
     # Self-update toolset.ps1 in toolsetdir.
     # Safe: PowerShell reads the entire script into memory before execution begins,
     # so overwriting (or renaming) the source file mid-run does not affect execution.
-    # Source priority: L: drive → GitHub (pinned to manifest version) → $PSCommandPath.
+    # Source priority: L: drive -> GitHub (pinned to manifest version) -> $PSCommandPath.
     # Hash-compare with the installed copy: skip entirely when already up to date.
     $destToolset = "$toolsetdir\toolset.ps1"
     $tsSource    = $null

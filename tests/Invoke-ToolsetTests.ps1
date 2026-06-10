@@ -1640,6 +1640,7 @@ Write-Host "[59] Self-update — no error when running toolset.ps1 from install 
 $d59  = "C:\tmp\s59d"
 $ps59 = "C:\tmp\s59p"
 New-Item -Force -ItemType Directory $d59 | Out-Null
+New-Item -Force -ItemType Directory $ps59 | Out-Null
 # No LDrive toolset.ps1 -> GitHub 404 for v99.0.0 -> fallback to $PSCommandPath == $destToolset
 $null = New-Item -ItemType Directory -Force "C:\tmp\s59-ldrive"
 @{ version = "99.0.0"; apps = @() } | ConvertTo-Json -Depth 5 | Set-Content "$ps59\release-manifest.json" -Encoding UTF8
