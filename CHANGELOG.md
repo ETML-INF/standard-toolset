@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.6](https://github.com/ETML-INF/standard-toolset/compare/v2.7.5...v2.7.6) (2026-06-10)
+
+
+### Bug Fixes
+
+* **activation:** create shims as scoop reset doesnt do it anymore ([ee0c818](https://github.com/ETML-INF/standard-toolset/commit/ee0c8187e9e6f90e49449267934c5ea967330389))
+
 ## [2.7.5](https://github.com/ETML-INF/standard-toolset/compare/v2.7.4...v2.7.5) (2026-06-10)
 
 
