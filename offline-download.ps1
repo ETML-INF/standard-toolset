@@ -162,7 +162,7 @@ foreach ($app in $manifestJson.apps) {
         }
     }
     if ($needsDownload) {
-        Write-Host "  $($app.pack)..." -ForegroundColor Yellow -NoNewline
+        Write-Host "  $($app.pack)..." -ForegroundColor Yellow
         Invoke-Download -Url $packUrl -OutFile $outFile -Description $app.pack
         Write-Host " done" -ForegroundColor Green
     }
