@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.5](https://github.com/ETML-INF/standard-toolset/compare/v2.7.4...v2.7.5) (2026-06-10)
+
+
+### Bug Fixes
+
+* **activation:** win11 support ([c73048f](https://github.com/ETML-INF/standard-toolset/commit/c73048f52e9a7417a49806ff68505112ac01179f))
+
 ## [2.7.4](https://github.com/ETML-INF/standard-toolset/compare/v2.7.3...v2.7.4) (2026-05-07)
 
 
