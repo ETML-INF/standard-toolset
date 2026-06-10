@@ -25,18 +25,41 @@ jobs:
           release-type: simple
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # need parent commit for diff
 
-      # Tests run HERE (not in ci-tests.yml) for the release commit path.
-      # Why: ci-tests.yml excludes CHANGELOG.md-only pushes (the release-please merge commit),
-      # so it is intentionally silent on release day. That means this is the sole test
-      # gate before artifacts are built and uploaded. If tests fail the job stops here
-      # and the subsequent build/upload steps never execute — the GitHub Release tag
-      # exists but has no assets, which is recoverable (re-run the job).
-      # Gated on release_created: for every non-release push to main, release-please
-      # just updates its PR and exits; running tests there would be pure duplication
-      # since ci-tests.yml already ran them on that same commit.
-      - uses: ./.github/actions/validate-and-test
+      # Skip tests when this commit is a release-please bump (only changelog/manifest
+      # changed) AND the parent commit had a successful ci-tests.yml run.
+      # If the parent CI failed we must still run tests — the code was never validated.
+      - name: Detect release-please bump
+        id: rp
         if: steps.release.outputs.release_created
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $parent  = git rev-parse HEAD^
+          $changed = git diff --name-only $parent HEAD
+          $releaseMeta = @('CHANGELOG.md', 'version.txt', '.release-please-manifest.json')
+          $codeChanged = $changed | Where-Object { $_ -notin $releaseMeta }
+          if ($codeChanged) {
+            echo "skip=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          # Only skip if the parent commit has a successful ci-tests.yml run.
+          $owner = "${{ github.repository_owner }}"
+          $repo  = "${{ github.event.repository.name }}"
+          $runs  = gh api "repos/$owner/$repo/actions/workflows/ci-tests.yml/runs?head_sha=$parent&status=success&per_page=1" | ConvertFrom-Json
+          if ($runs.total_count -gt 0) {
+            echo "skip=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Skipping CI -- release-please bump on top of a passing commit."
+          } else {
+            echo "skip=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Running CI -- parent commit has no successful CI run."
+          }
+
+      - uses: ./.github/actions/validate-and-test
+        if: steps.release.outputs.release_created && steps.rp.outputs.skip != 'true'
 
       - name: Restore Scoop cache
         if: steps.release.outputs.release_created
