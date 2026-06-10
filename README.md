@@ -227,7 +227,7 @@ Un PR de release est automatiquement créé et mergé → déclenche `release.ym
 
 | Workflow               | Déclencheur                          | Rôle                                |
 |------------------------|--------------------------------------|-------------------------------------|
-| `ci.yml`               | push / PR sur main                   | Tests toolkit + build pipeline      |
+| `ci-tests.yml`               | push / PR sur main                   | Tests toolkit + build pipeline      |
 | `release.yml`          | release-please merge                 | Build packs + upload release assets |
 | `build-base-image.yml` | manuel / modif Dockerfile.build-base | Rebuild image de base des tests     |
 

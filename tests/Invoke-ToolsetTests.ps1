@@ -1657,6 +1657,48 @@ Remove-TestDir $d59, $ps59, "C:\tmp\s59-ldrive"
 
 }
 
+if (Test-Scenario '60') {
+Write-Host "[60] Activation -- missing shims dir on fresh machine exits 0 and creates shims dir" -ForegroundColor Cyan
+# Simulates first activation on a fresh Windows 11 machine: scoop.ps1 exists but shims\ does not.
+# Real scoop reset * throws "Cannot find path ...\shims" when the dir is absent.
+$d60 = "C:\tmp\s60d"; $sd60 = "$d60\scoop"
+New-Item -Force -ItemType Directory "$sd60\apps\scoop\current\bin" | Out-Null
+# Fake scoop.ps1 that mimics real scoop: throws if shims dir is absent
+$fakeScoop60 = @'
+param()
+$scoopDir = Split-Path (Split-Path (Split-Path (Split-Path $PSScriptRoot)))
+$shimsDir = "$scoopDir\shims"
+if (-not (Test-Path $shimsDir)) {
+    throw "Cannot find path '$shimsDir' because it does not exist."
+}
+'@
+Set-Content "$sd60\apps\scoop\current\bin\scoop.ps1" $fakeScoop60 -Encoding UTF8
+# Deliberately omit shims\ directory
+pwsh -File $toolkit -Path $d60 -NoInteraction 2>&1
+$ec60  = $LASTEXITCODE
+Assert "[60] exit 0 when shims dir absent on fresh install" ($ec60 -eq 0)
+Assert "[60] shims dir created before scoop reset"          (Test-Path "$sd60\shims")
+Remove-TestDir $d60
+
+}
+
+if (Test-Scenario '61') {
+Write-Host "[61] Update -- fresh install creates scoop\shims\ even without scoop.ps1" -ForegroundColor Cyan
+# Regression: shims dir must be created during update (before activation) so that
+# scoop reset does not throw "Cannot find path ...\shims" on the very first activation.
+# Using a pack with no scoop entry: activation will NOT reach the scoop.ps1 branch
+# that previously created shims, proving the mkdir now happens in the update path.
+$d61 = "C:\tmp\s61d"; $ps61 = "C:\tmp\s61p"
+& $helper -OutputDir $ps61 -Apps @(@{Name="app1";Version="1.0.0"})
+New-Item -Force -ItemType Directory $d61 | Out-Null
+pwsh -File $toolkit update -Path $d61 -ManifestSource "$ps61\release-manifest.json" -PackSource $ps61 -NoInteraction
+$ec61 = $LASTEXITCODE
+Assert "[61] exit 0"                         ($ec61 -eq 0)
+Assert "[61] scoop\shims\ created by update" (Test-Path "$d61\scoop\shims")
+Remove-TestDir $d61, $ps61
+
+}
+
 if ($script:fail -gt 0) {
     Write-Host ""
     Write-Host "Failed assertions:" -ForegroundColor Red

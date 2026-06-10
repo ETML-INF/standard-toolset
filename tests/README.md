@@ -96,7 +96,7 @@ pwsh tests/Run-BuildTests.ps1
 
 ## CI
 
-On every push/PR (`ci.yml`), two jobs run:
+On every push/PR (`ci-tests.yml`), two jobs run:
 
 1. **`test`** — runs the `validate-and-test` composite action:
    - Runs `Test-StaticChecks.ps1` (lint, ASCII, apps.json schema)

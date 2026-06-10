@@ -5,7 +5,7 @@ on:
     branches: [main]
     # CHANGELOG.md is the only file release-please touches when it merges its own
     # release PR (chore(main): release x.y.z). No source changed → no point running
-    # tests. Without this exclusion, every release merge would fire both ci.yml AND
+    # tests. Without this exclusion, every release merge would fire both ci-tests.yml AND
     # release.yml, doubling validate-and-test for zero benefit.
     # NOTE: if release-please is ever reconfigured to also bump a version file
     # (e.g. version.txt), add it here too or CI will still trigger on release commits.
@@ -13,6 +13,9 @@ on:
       - 'CHANGELOG.md'
   pull_request:
     branches: [main]
+    # Skip CI on release-please PRs — they only touch CHANGELOG.md.
+    paths-ignore:
+      - 'CHANGELOG.md'
 
 # Runner pin: windows-2022 (OS build 20348 = ltsc2022, required for process-isolation containers).
 # Update all three workflow files together if this ever needs to change.

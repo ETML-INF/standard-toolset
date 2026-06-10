@@ -343,6 +343,9 @@ function Invoke-Activate {
     }
     if (Test-Path $scoopPs1 -ErrorAction SilentlyContinue) {
         Write-Host "Resetting scoop (restores current junctions)..." -ForegroundColor Green
+        if (-not (Test-Path "$scoopdir\shims" -ErrorAction SilentlyContinue)) {
+            New-Item -ItemType Directory -Path "$scoopdir\shims" -Force | Out-Null
+        }
         & $scoopPs1 reset *
     } else {
         if (-not (Test-Path $scoopdir -ErrorAction SilentlyContinue)) {
@@ -1796,6 +1799,13 @@ if ($Command -eq "update") {
             New-Item -ItemType Directory -Force -Path $toolsetdir | Out-Null
             Write-Host "Created $toolsetdir (fresh install)" -ForegroundColor Green
         }
+    }
+
+    # Ensure shims dir exists early so scoop reset never throws "Cannot find path ...\shims"
+    # on first activation after a fresh install.
+    $shimsDir = "$toolsetdir\scoop\shims"
+    if (-not (Test-Path $shimsDir)) {
+        New-Item -ItemType Directory -Force -Path $shimsDir | Out-Null
     }
 
     $manifest = Get-CurrentManifest -ManifestSource $ManifestSource -Version $Version -LDrivePath $LDrivePath -NoInteraction ([bool]$NoInteraction)
