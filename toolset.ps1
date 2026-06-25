@@ -65,11 +65,12 @@ function Invoke-ExeConflictCheck {
     try {
         $allExes = @(Get-Command $ExeName -All -ErrorAction SilentlyContinue)
         if ($allExes.Count -eq 0) { return }
-
+        
         foreach ($cmd in $allExes) {
             $exePath = $cmd.Source
             if ($exePath.StartsWith($toolsetdir)) { continue }
-
+            # Ignore fake executables that serve as shortcuts for installing programs on Windows 11 (python.exe, wsl.exe, etc..)
+            if ($cmd.Length == 0) { continue }
             $warnLine = "  WARNING: $DisplayName detected outside toolset!"
             $confLine = "  This will conflict with the toolset version."
             $innerW   = [Math]::Max($warnLine.Length, $confLine.Length) + 2
