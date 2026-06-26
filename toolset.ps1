@@ -63,12 +63,43 @@ function Invoke-ExeConflictCheck {
         [bool]$NoInteraction
     )
     try {
-        $allExes = @(Get-Command $ExeName -All -ErrorAction SilentlyContinue)
+        # Lazy cache: Get-AppxPackage is slow; populate once and reuse across all calls.
+        # Guard with Get-Command first: the cmdlet may be absent on server SKUs or containers,
+        # in which case a missing cmdlet throws a terminating CommandNotFoundException that
+        # -ErrorAction SilentlyContinue cannot suppress.
+        if (-not (Get-Variable -Name 'CachedAppxPackages' -Scope Script -ErrorAction SilentlyContinue)) {
+            $script:CachedAppxPackages = if (Get-Command 'Get-AppxPackage' -ErrorAction SilentlyContinue) {
+                @(Get-AppxPackage -ErrorAction SilentlyContinue)
+            } else { @() }
+        }
+
+        $allExes = @(Get-Command $ExeName -All -CommandType Application -ErrorAction SilentlyContinue)
         if ($allExes.Count -eq 0) { return }
+
+        # Normalize toolset prefix with trailing separator to avoid matching sibling dirs
+        # (e.g. C:\toolset must not match C:\toolset-old).
+        $toolsetPrefix   = $toolsetdir.TrimEnd('\', '/') + '\'
+        # Guard LOCALAPPDATA: unset in some service/container contexts
+        $windowsAppsPath = if ($env:LOCALAPPDATA) { (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps').TrimEnd('\') + '\' } else { $null }
 
         foreach ($cmd in $allExes) {
             $exePath = $cmd.Source
-            if ($exePath.StartsWith($toolsetdir)) { continue }
+            if ($exePath.StartsWith($toolsetPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+
+            # Microsoft Store app execution aliases live in %LOCALAPPDATA%\Microsoft\WindowsApps.
+            # Windows 11 pre-places dead 0-byte stubs there (e.g. python.exe, wsl.exe) that
+            # open the Store when run -- those must be silently skipped.
+            # But if a real Store package IS installed we detect it via the cached package list
+            # and offer a no-elevation Remove-AppxPackage uninstall instead of winget/registry.
+            $storePackage = $null
+            if ($windowsAppsPath -and $exePath.StartsWith($windowsAppsPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $exeFilename  = [System.IO.Path]::GetFileName($exePath)
+                $storePackage = $script:CachedAppxPackages | Where-Object {
+                    $_.InstallLocation -and
+                    (Test-Path (Join-Path $_.InstallLocation $exeFilename) -ErrorAction SilentlyContinue)
+                } | Select-Object -First 1
+                if (-not $storePackage) { continue }  # dead stub - skip silently
+            }
 
             $warnLine = "  WARNING: $DisplayName detected outside toolset!"
             $confLine = "  This will conflict with the toolset version."
@@ -81,10 +112,14 @@ function Invoke-ExeConflictCheck {
             Write-Host $border -ForegroundColor Red
             Write-Host "  Detected: $exePath" -ForegroundColor Yellow
 
-            # Determine uninstall command: registry first, winget fallback, else manual
-            $uninstallCmd = $null
+            # Determine uninstall method: Store package > registry entry > winget fallback
+            $uninstallCmd    = $null
             $uninstallSource = $null
-            if (-not [string]::IsNullOrEmpty($UninstallSearch)) {
+            $isStorePackage  = $null -ne $storePackage
+
+            if ($isStorePackage) {
+                $uninstallSource = "Microsoft Store ($($storePackage.Name))"
+            } elseif (-not [string]::IsNullOrEmpty($UninstallSearch)) {
                 $entry = Find-UninstallEntry -Pattern $UninstallSearch
                 if ($entry) {
                     $quietStr = if ($entry.PSObject.Properties['QuietUninstallString']) { $entry.QuietUninstallString } else { $null }
@@ -92,37 +127,52 @@ function Invoke-ExeConflictCheck {
                     $uninstallCmd = if ($quietStr) { $quietStr } elseif ($uninstStr) { $uninstStr } else { $null }
                     $uninstallSource = "Add/Remove Programs: $($entry.DisplayName)"
                 }
-            }
-            if (-not $uninstallCmd -and -not [string]::IsNullOrEmpty($UninstallSearch)) {
-                # Winget fallback: strip trailing wildcard from search pattern
-                $wingetName = $UninstallSearch.TrimEnd('*').Trim()
-                $uninstallCmd = "winget uninstall --name `"$wingetName`""
-                $uninstallSource = "winget (fallback)"
+                if (-not $uninstallCmd) {
+                    # Winget fallback: strip trailing wildcard from search pattern
+                    $wingetName      = $UninstallSearch.TrimEnd('*').Trim()
+                    $uninstallCmd    = "winget uninstall --name `"$wingetName`""
+                    $uninstallSource = "winget (fallback)"
+                }
             }
 
-            if ($uninstallCmd) {
+            if ($isStorePackage -or $uninstallCmd) {
                 Write-Host "  Uninstall via $uninstallSource" -ForegroundColor Cyan
-                Write-Host "  Command: $uninstallCmd" -ForegroundColor Cyan
+                if ($isStorePackage) {
+                    Write-Host "  Command: Remove-AppxPackage (no elevation required)" -ForegroundColor Cyan
+                } else {
+                    Write-Host "  Command: $uninstallCmd" -ForegroundColor Cyan
+                }
                 if (-not $NoInteraction) {
-                    $answer = Read-Host "Uninstall now? (requires elevation) [Y/N]"
+                    $elevNote = if ($isStorePackage) { "(no elevation required)" } else { "(requires elevation)" }
+                    $answer = Read-Host "Uninstall now? $elevNote [Y/N]"
                     if ($answer -match '^[Yy]$') {
                         try {
-                            $proc = Start-Process cmd -Verb RunAs -Wait -PassThru `
-                                -ArgumentList "/c", $uninstallCmd
-                            if ($proc.ExitCode -eq 0) {
+                            if ($isStorePackage) {
+                                Remove-AppxPackage -Package $storePackage.PackageFullName -ErrorAction Stop
                                 Write-Host "$DisplayName uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
                                 exit 0
                             } else {
-                                Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually via Control Panel, then re-run toolset.ps1."
+                                $proc = Start-Process cmd -Verb RunAs -Wait -PassThru `
+                                    -ArgumentList "/c", $uninstallCmd
+                                if ($proc.ExitCode -eq 0) {
+                                    Write-Host "$DisplayName uninstalled. Please re-run toolset.ps1." -ForegroundColor Green
+                                    exit 0
+                                } else {
+                                    Write-Warning "Uninstall returned exit code $($proc.ExitCode). Please uninstall manually via Control Panel, then re-run toolset.ps1."
+                                }
                             }
                         } catch {
-                            Write-Warning "Uninstall failed: $_. Please uninstall manually via Control Panel, then re-run toolset.ps1."
+                            Write-Warning "Uninstall failed: $_. Please uninstall manually, then re-run toolset.ps1."
                         }
                     } else {
                         Write-Warning "Please uninstall $DisplayName manually, then re-run toolset.ps1."
                     }
                 } else {
-                    Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
+                    if ($isStorePackage) {
+                        Write-Warning "Store-installed $DisplayName at $exePath. Run: Remove-AppxPackage -Package '$($storePackage.PackageFullName)', then re-run toolset.ps1."
+                    } else {
+                        Write-Warning "Admin-installed $DisplayName at $exePath. Uninstall it manually, then re-run toolset.ps1."
+                    }
                 }
             } else {
                 Write-Host "  No automated uninstall found. Remove $DisplayName via Control Panel manually." -ForegroundColor Yellow
