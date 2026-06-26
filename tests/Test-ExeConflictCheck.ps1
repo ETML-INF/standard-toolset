@@ -240,6 +240,12 @@ try {
     Assert "EC-11: Remove-AppxPackage mentioned"           ($out11 -match "Remove-AppxPackage")
     Assert "EC-11: no elevation required for Store uninstall" ($out11 -match "no elevation required")
 
+    # [EC-12] Toolset dir check is case-insensitive: toolsetdir in UPPERCASE must still skip its own shims
+    Write-Host "[EC-12] Toolset dir check is case-insensitive"
+    $out12 = Invoke-ConflictCheckTest -ToolsetDir $fakeToolset.ToUpper() `
+        -TestPath $fakeShims -ExeName "node" -DisplayName "Node.js"
+    Assert "EC-12: no warning when toolsetdir casing differs" (-not ($out12 -match "WARNING_DETECTED"))
+
 } finally {
     if (Test-Path $fakeToolset)      { Remove-Item $fakeToolset      -Recurse -Force -ErrorAction SilentlyContinue }
     if (Test-Path $fakeAdmin)        { Remove-Item $fakeAdmin        -Recurse -Force -ErrorAction SilentlyContinue }

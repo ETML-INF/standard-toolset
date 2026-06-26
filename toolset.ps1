@@ -75,7 +75,7 @@ function Invoke-ExeConflictCheck {
 
         foreach ($cmd in $allExes) {
             $exePath = $cmd.Source
-            if ($exePath.StartsWith($toolsetdir)) { continue }
+            if ($exePath.StartsWith($toolsetdir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
 
             # Microsoft Store app execution aliases live in %LOCALAPPDATA%\Microsoft\WindowsApps.
             # Windows 11 pre-places dead 0-byte stubs there (e.g. python.exe, wsl.exe) that
