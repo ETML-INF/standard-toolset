@@ -63,19 +63,28 @@ function Invoke-ExeConflictCheck {
         [bool]$NoInteraction
     )
     try {
-        # Lazy cache: Get-AppxPackage is slow; populate once and reuse across all calls
+        # Lazy cache: Get-AppxPackage is slow; populate once and reuse across all calls.
+        # Guard with Get-Command first: the cmdlet may be absent on server SKUs or containers,
+        # in which case a missing cmdlet throws a terminating CommandNotFoundException that
+        # -ErrorAction SilentlyContinue cannot suppress.
         if (-not (Get-Variable -Name 'CachedAppxPackages' -Scope Script -ErrorAction SilentlyContinue)) {
-            $script:CachedAppxPackages = @(Get-AppxPackage -ErrorAction SilentlyContinue)
+            $script:CachedAppxPackages = if (Get-Command 'Get-AppxPackage' -ErrorAction SilentlyContinue) {
+                @(Get-AppxPackage -ErrorAction SilentlyContinue)
+            } else { @() }
         }
 
         $allExes = @(Get-Command $ExeName -All -CommandType Application -ErrorAction SilentlyContinue)
         if ($allExes.Count -eq 0) { return }
 
-        $windowsAppsPath = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+        # Normalize toolset prefix with trailing separator to avoid matching sibling dirs
+        # (e.g. C:\toolset must not match C:\toolset-old).
+        $toolsetPrefix   = $toolsetdir.TrimEnd('\', '/') + '\'
+        # Guard LOCALAPPDATA: unset in some service/container contexts
+        $windowsAppsPath = if ($env:LOCALAPPDATA) { (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps').TrimEnd('\') + '\' } else { $null }
 
         foreach ($cmd in $allExes) {
             $exePath = $cmd.Source
-            if ($exePath.StartsWith($toolsetdir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+            if ($exePath.StartsWith($toolsetPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
 
             # Microsoft Store app execution aliases live in %LOCALAPPDATA%\Microsoft\WindowsApps.
             # Windows 11 pre-places dead 0-byte stubs there (e.g. python.exe, wsl.exe) that
@@ -83,7 +92,7 @@ function Invoke-ExeConflictCheck {
             # But if a real Store package IS installed we detect it via the cached package list
             # and offer a no-elevation Remove-AppxPackage uninstall instead of winget/registry.
             $storePackage = $null
-            if ($exePath.StartsWith($windowsAppsPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            if ($windowsAppsPath -and $exePath.StartsWith($windowsAppsPath, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $exeFilename  = [System.IO.Path]::GetFileName($exePath)
                 $storePackage = $script:CachedAppxPackages | Where-Object {
                     $_.InstallLocation -and

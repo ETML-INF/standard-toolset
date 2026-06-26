@@ -142,12 +142,14 @@ $uid              = [guid]::NewGuid().ToString('N').Substring(0, 8)
 $fakeToolset      = Join-Path $tmp "ec-toolset-$uid"
 $fakeAdmin        = Join-Path $tmp "ec-admin-$uid"
 $fakeShims        = Join-Path $fakeToolset "shims"
+$fakeSibling      = $fakeToolset + "-sibling"   # shares the toolset prefix but is NOT inside it
 $fakeLocalAppData = Join-Path $tmp "ec-localappdata-$uid"
 $fakeWindowsApps  = Join-Path $fakeLocalAppData "Microsoft\WindowsApps"
 
 try {
     New-Item -Force -ItemType Directory $fakeShims       | Out-Null
     New-Item -Force -ItemType Directory $fakeAdmin       | Out-Null
+    New-Item -Force -ItemType Directory $fakeSibling     | Out-Null
     New-Item -Force -ItemType Directory $fakeWindowsApps | Out-Null
     Set-Content (Join-Path $fakeShims "node.cmd")         "@echo off" -Encoding ASCII
     Set-Content (Join-Path $fakeShims "python.cmd")       "@echo off" -Encoding ASCII
@@ -155,6 +157,7 @@ try {
     Set-Content (Join-Path $fakeAdmin "node.cmd")         "@echo off" -Encoding ASCII
     Set-Content (Join-Path $fakeAdmin "python.cmd")       "@echo off" -Encoding ASCII
     Set-Content (Join-Path $fakeAdmin "code.cmd")         "@echo off" -Encoding ASCII
+    Set-Content (Join-Path $fakeSibling "node.cmd")       "@echo off" -Encoding ASCII
     # Simulate Microsoft Store app execution aliases: cmd stubs in WindowsApps
     Set-Content (Join-Path $fakeWindowsApps "python.cmd") "@echo off" -Encoding ASCII
     Set-Content (Join-Path $fakeWindowsApps "wsl.cmd")    "@echo off" -Encoding ASCII
@@ -246,9 +249,17 @@ try {
         -TestPath $fakeShims -ExeName "node" -DisplayName "Node.js"
     Assert "EC-12: no warning when toolsetdir casing differs" (-not ($out12 -match "WARNING_DETECTED"))
 
+    # [EC-13] Toolset dir prefix collision: sibling dir sharing same prefix must still be flagged
+    Write-Host "[EC-13] Toolset dir prefix does not match sibling dir"
+    $out13 = Invoke-ConflictCheckTest -ToolsetDir $fakeToolset `
+        -TestPath "$fakeShims;$fakeSibling" -ExeName "node" -DisplayName "Node.js"
+    Assert "EC-13: warning emitted for sibling dir conflict" ($out13 -match "WARNING_DETECTED")
+    Assert "EC-13: warning references sibling path"          ($out13 -match [regex]::Escape($fakeSibling))
+
 } finally {
     if (Test-Path $fakeToolset)      { Remove-Item $fakeToolset      -Recurse -Force -ErrorAction SilentlyContinue }
     if (Test-Path $fakeAdmin)        { Remove-Item $fakeAdmin        -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $fakeSibling)      { Remove-Item $fakeSibling      -Recurse -Force -ErrorAction SilentlyContinue }
     if (Test-Path $fakeLocalAppData) { Remove-Item $fakeLocalAppData -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
