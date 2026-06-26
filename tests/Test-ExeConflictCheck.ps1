@@ -77,7 +77,7 @@ function Invoke-ConflictCheckTest {
     $escExe          = $ExeName.Replace("'", "''")
     $escDisplay      = $DisplayName.Replace("'", "''")
     $escSearch       = $UninstallSearch.Replace("'", "''")
-    $escLocalAppData = $LocalAppData.Replace("'", "''")
+    $escLocalAppData = if ($LocalAppData) { $LocalAppData.Replace("'", "''") } else { '' }
 
     $fakeBody = if ($FakeUninstall -eq 'found') {
         "return [PSCustomObject]@{ DisplayName = 'FakeApp 1.0'; QuietUninstallString = 'MsiExec.exe /X{FAKE-GUID}' }"
