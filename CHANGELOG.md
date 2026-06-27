@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/ETML-INF/standard-toolset/compare/v2.8.0...v2.8.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* **scoop:** put back scoop itself on path ([d01a435](https://github.com/ETML-INF/standard-toolset/commit/d01a435790caec5c69dc4ea85b3b5dfb0e543324))
+
 ## [2.8.0](https://github.com/ETML-INF/standard-toolset/compare/v2.7.6...v2.8.0) (2026-06-27)
 
 
