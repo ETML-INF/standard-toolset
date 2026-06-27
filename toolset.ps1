@@ -487,15 +487,29 @@ function Invoke-Activate {
 
     Write-Host "Updating scoop shims for path $toolsetdir..." -ForegroundColor Green
     $shimpath = "$scoopdir\shims"
+    # Scoop shims are not included in per-app packs; regenerate via scoop shim add if missing.
+    # scoop shim add also adds the shims dir to the user PATH so cmd.exe can find scoop.
+    if (-not (Test-Path "$shimpath\scoop.cmd" -ErrorAction SilentlyContinue)) {
+        Write-Host "  scoop shim missing - regenerating via scoop shim add..." -ForegroundColor Yellow
+        & $scoopPs1 shim add scoop "$scoopdir\apps\scoop\current\bin\scoop.ps1"
+        if (Test-Path "$shimpath\scoop.cmd" -ErrorAction SilentlyContinue) {
+            Write-Host "  scoop shim created - path-patching will follow." -ForegroundColor Green
+        } else {
+            Write-Warning "scoop shim add did not create scoop.cmd - scoop may not be on PATH"
+        }
+    }
+    $patchedCount = 0
     @("$shimpath\scoop","$shimpath\scoop.cmd","$shimpath\scoop.ps1") | ForEach-Object {
-        if (-not (Test-Path $_ -ErrorAction SilentlyContinue)) { return }   # absent on partial/interrupted install
+        if (-not (Test-Path $_ -ErrorAction SilentlyContinue)) { return }   # absent on partial/interrupted install or failed shim add
         $c = Get-Content $_ -Raw
         $newContent = [System.Text.RegularExpressions.Regex]::Replace(
             $c, '[A-Z]:.*?\\scoop\\',
             [System.Text.RegularExpressions.MatchEvaluator]{ param($m) "$scoopdir\" }
         )
         [System.IO.File]::WriteAllText($_, $newContent, [System.Text.UTF8Encoding]::new($false))
+        $patchedCount++
     }
+    Write-Host "  $patchedCount scoop shim file(s) path-patched." -ForegroundColor DarkGray
 
     Write-Host "Fixing reg file paths..." -ForegroundColor Green
     Get-ChildItem "$scoopdir\apps\*\current\*.reg" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
