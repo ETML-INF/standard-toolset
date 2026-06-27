@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/ETML-INF/standard-toolset/compare/v2.7.6...v2.8.0) (2026-06-27)
+
+
+### Features
+
+* **w11:** discard w11 python links to install ([dd0fc7a](https://github.com/ETML-INF/standard-toolset/commit/dd0fc7a3a06550b9ac6a301a373aaa54d2e25bfa))
+
 ## [2.7.6](https://github.com/ETML-INF/standard-toolset/compare/v2.7.5...v2.7.6) (2026-06-10)
 
 
