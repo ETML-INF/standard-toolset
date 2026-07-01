@@ -488,7 +488,7 @@ function Invoke-Activate {
     Write-Host "Updating scoop shims for path $toolsetdir..." -ForegroundColor Green
     $shimpath = "$scoopdir\shims"
     # Scoop shims are not included in per-app packs; regenerate via scoop shim add if missing.
-    # scoop shim add also adds the shims dir to the user PATH so cmd.exe can find scoop.
+    # (The shims dir is added to PATH by scoop reset * above; shim add just creates the files.)
     if (-not (Test-Path "$shimpath\scoop.cmd" -ErrorAction SilentlyContinue)) {
         Write-Host "  scoop shim missing - regenerating via scoop shim add..." -ForegroundColor Yellow
         & $scoopPs1 shim add scoop "$scoopdir\apps\scoop\current\bin\scoop.ps1"
